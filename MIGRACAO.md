@@ -1,0 +1,2 @@
+# Cópia independente da Planilha Manel
+Fonte extraído do commit 5b0b704bdb6aeac092305a09064a8d0e61bf2790. O identificador do projeto original foi removido de .openai/hosting.json. Registre um NOVO projeto com binding DB antes de publicar. O backup de dados é separado e não deve ser commitado. Consulte o LEIA-ME.md do pacote de migração para importação, desenvolvimento e Android. Dependências não estão vendorizadas; use pnpm-lock.yaml. Nenhuma nova hospedagem foi criada por este pacote.

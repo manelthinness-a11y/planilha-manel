@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Planilha Manel</string>
+    <color name="manel_green">#153e33</color>
+    <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">#135b47</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:statusBarColor">#153e33</item>
+        <item name="android:navigationBarColor">#153e33</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:windowBackground">#f4f6f7</item>
+        <item name="android:windowActionModeOverlay">true</item>
+    </style>
+</resources>
