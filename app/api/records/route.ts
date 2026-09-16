@@ -42,6 +42,15 @@ export async function DELETE(req:Request){try{
  const origin=req.headers.get('origin');if(origin&&origin!==new URL(req.url).origin)return Response.json({error:'Origem inválida'},{status:403});
  const body=z.object({id:z.string().min(1),revision:z.number().int().positive()}).parse(await req.json());
  const rows=await all();const old=rows.find((r:any)=>r.id===body.id);
+ if(old?.kind==='account'){
+  if(old.revision!==body.revision)return Response.json({error:'Esta conta mudou. Sincronize antes de excluir.',code:'stale'},{status:409});
+  const linked=rows.some((r:any)=>(r.kind==='movement'&&r.data.account===body.id)||(r.kind==='arb'&&(r.data.bets?.some((b:any)=>b.account===body.id)||r.data.promo?.account===body.id)));
+  if(linked)return Response.json({error:'Esta conta possui movimentações, apostas ou créditos promocionais vinculados. A exclusão foi bloqueada para preservar o histórico. Você pode editar o cadastro da conta.',code:'account_dependency'},{status:409});
+  const sql="DELETE FROM records WHERE id=? AND kind='account' AND revision=? AND COALESCE((SELECT group_concat(token, '|') FROM (SELECT id || ':' || revision AS token FROM records ORDER BY id)), '') = ?";
+  const result=await database().prepare(sql).bind(body.id,body.revision,recordsSnapshot(rows)).run();
+  if(!result.meta.changes)return Response.json({error:'Os dados mudaram. Sincronize e confira a conta antes de excluir.',code:'stale'},{status:409});
+  return Response.json({id:body.id,rows:rows.filter((r:any)=>r.id!==body.id)},{headers:{'Cache-Control':'no-store'}});
+ }
  if(!old||old.kind!=='arb')return Response.json({error:'Arbitragem não encontrada. Sincronize os dados.',code:'stale'},{status:404});
  if(old.revision!==body.revision)return Response.json({error:'Esta arbitragem foi alterada em outro dispositivo. Confira a versão atual antes de excluir.',code:'stale'},{status:409});
  const dependents=freebetDependents(rows,body.id);
