@@ -5,8 +5,8 @@ export const leverageEntries=(rows:RecordItem[],group:Group='alavancagem')=>rows
 export function nextLeverage(rows:RecordItem[],group:Group='alavancagem'){
  const entries=leverageEntries(rows,group),last=entries.at(-1);
  if(last?.data.result==='Pendente')throw new Error('Finalize a entrada pendente antes de criar outra.');
- const reset=!last||last.data.result==='Red'||last.data.prize>=50;
- return {stake:reset?10:last.data.prize,sequence:(last?.data.sequence||0)+1,cycle:!last?1:last.data.cycle+(reset?1:0)};
+ const reset=!last||last.data.result==='Red'||last.data.prize>=5000;
+ return {stake:reset?1000:last.data.prize,sequence:(last?.data.sequence||0)+1,cycle:!last?1:last.data.cycle+(reset?1:0)};
 }
 export function settleLeverage(entry:Entry,result:'Green'|'Red'):Entry{
  if(entry.result!=='Pendente')throw new Error('Esta entrada já foi finalizada. Sincronize os dados.');
