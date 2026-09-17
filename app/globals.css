@@ -202,3 +202,7 @@ body{font-family:Arial,Helvetica,sans-serif;margin:0;color:#172b37;background:#f
 .account-selector.accounts-ranking{max-width:none}
 .accounts-ranking .account-selectors,.accounts-ranking .person-balance{max-width:600px}
 .account-selector.accounts-ranking .account-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr))}
+
+/* Botão primário de ação destrutiva (ex.: confirmar exclusão) */
+.primary.negative{background:#b13236;border-color:#b13236;color:#fff}
+.primary.negative:hover{background:#8f2529}
