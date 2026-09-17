@@ -2,7 +2,7 @@
 
 Aplicativo Android instalável que abre a Planilha Manel no próprio aplicativo,
 com a mesma interface e o mesmo banco de dados do site:
-https://arbt-controle.aemonddesignmelhor.chatgpt.site/
+https://planilha-manel.manelthinness.workers.dev/
 
 ## Uso
 
@@ -42,7 +42,11 @@ instale a versão 1.1.0 por cima, mantendo a mesma assinatura.
 
 ## Compilação
 
-Versão atual: 1.1.0, código 2, pacote `br.com.planilhamanel.app`.
+Versão atual: 2.0.0, código 3, pacote `br.com.planilhamanel.app`. A partir da versão 2.0.0
+o app abre o site hospedado na Cloudflare (Workers) em vez do antigo domínio `.chatgpt.site`,
+e passou a usar uma chave de assinatura nova. Quem tinha a versão 1.1.0 instalada precisa
+desinstalá-la antes de instalar a 2.0.0, já que o Android não aceita atualizar um pacote
+com uma assinatura diferente da anterior.
 API mínima 26; API alvo e de compilação 35. Sem bibliotecas nativas, compatível com
 as arquiteturas Android suportadas por essas versões.
 

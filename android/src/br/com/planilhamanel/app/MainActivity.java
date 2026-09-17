@@ -34,8 +34,8 @@ import android.widget.Toast;
 
 /** Online Android client: the hosted application remains the only source of financial data. */
 public final class MainActivity extends Activity {
-    private static final String APP_URL = "https://arbt-controle.aemonddesignmelhor.chatgpt.site/";
-    private static final String APP_HOST = "arbt-controle.aemonddesignmelhor.chatgpt.site";
+    private static final String APP_URL = "https://planilha-manel.manelthinness.workers.dev/";
+    private static final String APP_HOST = "planilha-manel.manelthinness.workers.dev";
     private WebView web;
     private ProgressBar progress;
     private LinearLayout errorPanel;
