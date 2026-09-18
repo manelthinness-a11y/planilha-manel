@@ -10,6 +10,7 @@ export const insertRecordSql=`INSERT INTO records (id,kind,data,revision) SELECT
 export const updateRecordSql=`UPDATE records SET data=?, revision=revision+1 WHERE id=? AND revision=? AND ${snapshotSql}`;
 export const deleteArbitrageSql=`DELETE FROM records WHERE id=? AND kind='arb' AND revision=? AND ${snapshotSql}`;
 export const deleteAlavancagemSql=`DELETE FROM records WHERE id=? AND kind='alavancagem' AND revision=? AND ${snapshotSql}`;
+export const deleteOdd5Sql=`DELETE FROM records WHERE id=? AND kind='odd5' AND revision=? AND ${snapshotSql}`;
 
 export function freebetDependents(rows:RecordItem[],id:string):RecordItem[] {
  return rows.filter(r=>r.kind==='arb'&&r.id!==id&&r.data.bets.some((b:any)=>b.capital==='Freebet'&&b.lot==='promo:'+id));
