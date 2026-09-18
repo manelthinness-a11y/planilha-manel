@@ -2,8 +2,9 @@
 import {useRef,useState} from 'react';
 import {Plus,Trash2} from 'lucide-react';
 import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription} from '@/components/ui/dialog';
-import {money,RecordItem} from '@/lib/banca';
+import {money,RecordItem,summary} from '@/lib/banca';
 import {leverageEntries,nextLeverage,type Group} from '@/lib/alavancagem';
+import {PersonAccountPicker} from '@/components/person-account-picker';
 type PanelProps={rows:RecordItem[];disabled:boolean;onUpdated:()=>Promise<unknown>};
 export function AlavancagemPanel(props:PanelProps){
  const [group,setGroup]=useState<Group>('alavancagem');
@@ -17,7 +18,8 @@ export function AlavancagemPanel(props:PanelProps){
 function LeverageRegister({rows,disabled,onUpdated,group}:PanelProps&{group:Group}){
  const entries=leverageEntries(rows,group),pending=entries.find(r=>r.data.result==='Pendente');
  const next=pending?null:nextLeverage(rows,group);
- const [open,setOpen]=useState(false),[event,setEvent]=useState(''),[date,setDate]=useState(''),[odd,setOdd]=useState('1.30'),[market,setMarket]=useState(''),[account,setAccount]=useState(''),[house,setHouse]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false),[confirm,setConfirm]=useState<{id:string;revision:number;result:'Green'|'Red';event:string;stake:number;odd:number}|null>(null);
+ const accounts=summary(rows).accounts;
+ const [open,setOpen]=useState(false),[event,setEvent]=useState(''),[date,setDate]=useState(''),[odd,setOdd]=useState('1.30'),[market,setMarket]=useState(''),[accountId,setAccountId]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false),[confirm,setConfirm]=useState<{id:string;revision:number;result:'Green'|'Red';event:string;stake:number;odd:number}|null>(null);
  const [deleteTarget,setDeleteTarget]=useState<{id:string;revision:number;event:string;sequence:number}|null>(null);
  const [creation,setCreation]=useState<{stake:number;sequence:number;cycle:number}|null>(null);
  const lock=useRef(false);
@@ -29,7 +31,7 @@ function LeverageRegister({rows,disabled,onUpdated,group}:PanelProps&{group:Grou
  const last=entries.at(-1);
  return <div>
   <p className="hint">{group==='individual'?'Registros Individual':'Registros Alavancagem 1,3'} · Histórico e sequência de stakes independentes.</p>
-  <button type="button" className="primary" disabled={disabled||busy||!!pending} onClick={()=>{setCreation(next);setEvent('');setOdd('1.30');setMarket('');setAccount('');setHouse('');const now=new Date();setDate([now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-'));setError('');setOpen(true);}}><Plus size={18}/>Nova entrada</button>
+  <button type="button" className="primary" disabled={disabled||busy||!!pending} onClick={()=>{setCreation(next);setEvent('');setOdd('1.30');setMarket('');setAccountId('');const now=new Date();setDate([now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-'));setError('');setOpen(true);}}><Plus size={18}/>Nova entrada</button>
   <section className="person-balance" style={{maxWidth:600,margin:'20px 0'}}>
    <span>{pending?'Stake da entrada pendente':'Stake da próxima entrada'} · odd variável</span>
    <strong>{money(pending?.data.stake??next?.stake??1000)}</strong>
@@ -50,10 +52,11 @@ function LeverageRegister({rows,disabled,onUpdated,group}:PanelProps&{group:Grou
    {r.data.result==='Pendente'&&<div className="account-actions">{(['Green','Red'] as const).map(result=><button key={result} type="button" disabled={disabled||busy} onClick={()=>{setError('');setConfirm({id:r.id,revision:r.revision,result,event:r.data.event,stake:r.data.stake,odd:r.data.odd??1.3});}}>{result}</button>)}</div>}
   </article>)}</div>
   {!entries.length&&<div className="quiet-empty">Registre a primeira entrada com stake de R$ 10,00.</div>}
-  <Dialog open={open} onOpenChange={v=>{if(!busy)setOpen(v);}}><DialogContent className="editor"><DialogHeader><DialogTitle>Nova entrada</DialogTitle><DialogDescription>Stake automática de {money(creation?.stake||1000)} · odd entre 1,30 e 1,60. A entrada será registrada como pendente.</DialogDescription></DialogHeader><form onSubmit={e=>{e.preventDefault();if(creation)void send({action:'create',group,event,date,odd:Number(odd),market,account,house,expectedSequence:creation.sequence});}}>
+  <Dialog open={open} onOpenChange={v=>{if(!busy)setOpen(v);}}><DialogContent className="editor"><DialogHeader><DialogTitle>Nova entrada</DialogTitle><DialogDescription>Stake automática de {money(creation?.stake||1000)} · odd entre 1,30 e 1,60. A entrada será registrada como pendente.</DialogDescription></DialogHeader><form onSubmit={e=>{e.preventDefault();const picked=accounts.find(a=>a.id===accountId);if(!picked){setError('Selecione a pessoa e a casa.');return;}if(creation)void send({action:'create',group,event,date,odd:Number(odd),market,account:picked.holder,house:picked.house,expectedSequence:creation.sequence});}}>
    <label className="field">Evento / descrição<input required maxLength={200} value={event} onChange={e=>setEvent(e.target.value)} disabled={busy} placeholder="Ex.: Time A x Time B — seleção"/></label>
-   <label className="field">Data<input required type="date" value={date} onChange={e=>setDate(e.target.value)} disabled={busy}/></label><label className="field">Odd<input required type="number" min="1.30" max="1.60" step="0.01" value={odd} onChange={e=>setOdd(e.target.value)} disabled={busy}/></label><label className="field">Mercado<input required maxLength={120} value={market} onChange={e=>setMarket(e.target.value)} disabled={busy}/></label><label className="field">Conta<input required maxLength={120} value={account} onChange={e=>setAccount(e.target.value)} disabled={busy}/></label><label className="field">Casa<input required maxLength={120} value={house} onChange={e=>setHouse(e.target.value)} disabled={busy}/></label>
-   {error&&<p className="error" role="alert">{error}</p>}<div className="form-actions"><button type="button" className="secondary" disabled={busy} onClick={()=>setOpen(false)}>Cancelar</button><button className="primary" disabled={busy||disabled}>{busy?'Salvando…':'Registrar entrada'}</button></div>
+   <label className="field">Data<input required type="date" value={date} onChange={e=>setDate(e.target.value)} disabled={busy}/></label><label className="field">Odd<input required type="number" min="1.30" max="1.60" step="0.01" value={odd} onChange={e=>setOdd(e.target.value)} disabled={busy}/></label><label className="field">Mercado<input required maxLength={120} value={market} onChange={e=>setMarket(e.target.value)} disabled={busy}/></label>
+   {accounts.length?<PersonAccountPicker accounts={accounts} value={accountId} onChange={setAccountId} disabled={busy} label="Casa"/>:<p className="hint">Nenhuma conta cadastrada ainda. Cadastre uma na aba Contas antes de registrar uma entrada.</p>}
+   {error&&<p className="error" role="alert">{error}</p>}<div className="form-actions"><button type="button" className="secondary" disabled={busy} onClick={()=>setOpen(false)}>Cancelar</button><button className="primary" disabled={busy||disabled||!accounts.length}>{busy?'Salvando…':'Registrar entrada'}</button></div>
   </form></DialogContent></Dialog>
   <Dialog open={!!confirm} onOpenChange={v=>{if(!v&&!busy)setConfirm(null);}}><DialogContent><DialogHeader><DialogTitle>Confirmar {confirm?.result}?</DialogTitle><DialogDescription>{confirm?.event} · Prêmio total: {money(confirm?.result==='Green'?Math.round(confirm.stake*confirm.odd*100)/100:0)}. O resultado definirá a próxima stake.</DialogDescription></DialogHeader>{error&&<p className="error" role="alert">{error}</p>}<div className="form-actions"><button className="secondary" disabled={busy} onClick={()=>setConfirm(null)}>Cancelar</button><button className="primary" disabled={busy||disabled} onClick={()=>{if(confirm)void send({action:'settle',group,id:confirm.id,revision:confirm.revision,result:confirm.result});}}>{busy?'Salvando…':'Confirmar resultado'}</button></div></DialogContent></Dialog>
   <Dialog open={!!deleteTarget} onOpenChange={v=>{if(!v&&!busy)setDeleteTarget(null);}}><DialogContent><DialogHeader><DialogTitle>Excluir entrada {deleteTarget?.sequence}?</DialogTitle><DialogDescription>{deleteTarget?.event} · Esta ação remove a entrada do histórico e não pode ser desfeita. A sequência e o ciclo seguem de onde pararam.</DialogDescription></DialogHeader>{error&&<p className="error" role="alert">{error}</p>}<div className="form-actions"><button className="secondary" disabled={busy} onClick={()=>setDeleteTarget(null)}>Cancelar</button><button className="primary negative" disabled={busy||disabled} onClick={()=>{if(deleteTarget)void send({action:'delete',group,id:deleteTarget.id,revision:deleteTarget.revision});}}>{busy?'Excluindo…':'Excluir entrada'}</button></div></DialogContent></Dialog>
