@@ -12,6 +12,14 @@ export function summary(rows:RecordItem[]){
  for(const r of rows.filter(r=>r.kind==='movement')){const a=byId[r.data.account];if(!a)continue;const m=r.data;if(m.type==='Depósito'||m.type==='Ajuste positivo')a.real+=m.amount;if(m.type==='Saque'||m.type==='Ajuste negativo')a.real-=m.amount;}
  const arbs=rows.filter(r=>r.kind==='arb').map(r=>{let total=0,received=0,cost=0,done=true;for(const b of r.data.bets){const a=byId[b.account];total+=b.stake;if(b.capital==='Real')cost+=b.stake;if(b.status==='Pendente'){done=false;open++;}const ret=b.status==='Ganhou'||b.status==='Cashout'?b.returned:b.status==='Cancelada'&&b.capital==='Real'?b.stake:0;received+=ret;if(a){a.real+=ret-(b.capital==='Real'?b.stake:0);if(b.status==='Pendente'&&b.capital==='Real')a.exposure+=b.stake;if(b.status!=='Pendente')a.profit+=ret-(b.capital==='Real'?b.stake:0);}if(b.capital==='Freebet'&&!(b.status==='Cancelada'&&b.reissued)){const lot=grants.find(g=>g.id===b.lot);if(lot)lot.remaining-=b.stake;}}
  const previousLoss=r.data.bets.reduce((sum:number,b:any)=>sum+(b.capital==='Freebet'?(b.previousLoss||0):0),0);const result=received-cost;const extractionResult=result-previousLoss;const betsDone=done;const awaitingPromo=r.data.promo?.status==='Aguardando';if(betsDone)profit+=result;done=betsDone&&!awaitingPromo;return {...r.data,id:r.id,revision:r.revision,total,cost,received,done,betsDone,awaitingPromo,result,previousLoss,extractionResult,resultPct:cost?result/cost*100:null};});
+ const normKey=(v:string)=>(v||'').normalize('NFKC').trim().replace(/\s+/g,' ').toLocaleLowerCase('pt-BR');
+ const byHolderHouse=Object.fromEntries(accounts.map(a=>[normKey(a.holder)+'|'+normKey(a.house),a]));
+ for(const r of rows.filter(r=>r.kind==='alavancagem')){
+  const d=r.data;const a=(d.accountId&&byId[d.accountId])||byHolderHouse[normKey(d.account)+'|'+normKey(d.house)];
+  const stake=d.stake||0,ret=d.result==='Green'?d.prize||0:0;
+  if(d.result==='Pendente')open++;
+  if(a){a.real+=ret-stake;if(d.result==='Pendente')a.exposure+=stake;if(d.result!=='Pendente')a.profit+=ret-stake;}
+ }
  const today=new Date().toISOString().slice(0,10);for(const g of grants){g.expired=!!g.expires&&g.expires<today;if(byId[g.account]&&!g.expired)byId[g.account].free+=g.remaining;}
  const realizedPreviousLoss=arbs.filter(a=>a.betsDone).reduce((total,a)=>total+a.previousLoss,0);
  const netProfit=profit-realizedPreviousLoss;
