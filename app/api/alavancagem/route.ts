@@ -2,12 +2,13 @@ import {z} from 'zod';
 import {database} from '@/lib/store';
 import type {RecordItem} from '@/lib/banca';
 import {recordsSnapshot,insertRecordSql,updateRecordSql,deleteAlavancagemSql} from '@/lib/record-changes';
-import {nextLeverage,settleLeverage,groupDefaultStake,defaultStakeSettingId} from '@/lib/alavancagem';
+import {nextLeverage,settleLeverage,groupDefaultStake,defaultStakeSettingId,mirrorGroupOf,TRACKS,type Group} from '@/lib/alavancagem';
+const groupEnum=z.enum(['alavancagem','individual','alavancagem2','individual2']) as z.ZodType<Group>;
 const input=z.discriminatedUnion('action',[
- z.object({action:z.literal('create'),group:z.enum(['alavancagem','individual']).default('alavancagem'),event:z.string().trim().min(1).max(200),date:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),odd:z.number().min(1.3).max(1.6),market:z.string().trim().min(1).max(120),account:z.string().trim().min(1).max(120),house:z.string().trim().min(1).max(120),accountId:z.string().trim().min(1),expectedSequence:z.number().int().positive()}),
- z.object({action:z.literal('settle'),group:z.enum(['alavancagem','individual']).default('alavancagem'),id:z.string().min(1),revision:z.number().int().positive(),result:z.enum(['Green','Red'])}),
- z.object({action:z.literal('delete'),group:z.enum(['alavancagem','individual']).default('alavancagem'),id:z.string().min(1),revision:z.number().int().positive()}),
- z.object({action:z.literal('set-default-stake'),group:z.enum(['alavancagem','individual']).default('alavancagem'),value:z.number().int().min(100).max(1000000)})
+ z.object({action:z.literal('create'),group:groupEnum.default('alavancagem'),event:z.string().trim().min(1).max(200),date:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),odd:z.number().min(1.01).max(5),market:z.string().trim().min(1).max(120),account:z.string().trim().min(1).max(120),house:z.string().trim().min(1).max(120),accountId:z.string().trim().min(1),expectedSequence:z.number().int().positive()}),
+ z.object({action:z.literal('settle'),group:groupEnum.default('alavancagem'),id:z.string().min(1),revision:z.number().int().positive(),result:z.enum(['Green','Red'])}),
+ z.object({action:z.literal('delete'),group:groupEnum.default('alavancagem'),id:z.string().min(1),revision:z.number().int().positive()}),
+ z.object({action:z.literal('set-default-stake'),group:groupEnum.default('alavancagem'),value:z.number().int().min(100).max(1000000)})
 ]);
 export async function POST(req:Request){try{
  const origin=req.headers.get('origin');if(origin&&origin!==new URL(req.url).origin)return Response.json({error:'Origem inválida'},{status:403});
@@ -17,23 +18,26 @@ export async function POST(req:Request){try{
  const snapshot=recordsSnapshot(rows);
  let result;
  if(body.action==='create'){
+  const track=TRACKS.find(t=>t.mainGroup===body.group||t.individualGroup===body.group);
+  if(track&&(body.odd<track.oddMin||body.odd>track.oddMax))return Response.json({error:`A odd deve estar entre ${track.oddMin.toFixed(2)} e ${track.oddMax.toFixed(2)} nesta aba.`},{status:400});
   const next=nextLeverage(rows,body.group);
   if(next.sequence!==body.expectedSequence)return Response.json({error:'A sequência mudou. Sincronize antes de registrar.'},{status:409});
+  const mirrorGroup=mirrorGroupOf(body.group);
   let mirrorNext:{stake:number;sequence:number;cycle:number}|null=null;
-  if(body.group==='alavancagem'){
-   try{mirrorNext=nextLeverage(rows,'individual');}
-   catch{return Response.json({error:'Individual possui uma entrada pendente. Finalize-a antes de registrar uma nova entrada na Alavancagem 1,3.'},{status:409});}
+  if(mirrorGroup){
+   try{mirrorNext=nextLeverage(rows,mirrorGroup);}
+   catch{return Response.json({error:'A aba Individual correspondente possui uma entrada pendente. Finalize-a antes de registrar uma nova entrada aqui.'},{status:409});}
   }
   const id=crypto.randomUUID();
   const data={...next,group:body.group,event:body.event,date:body.date,odd:body.odd,market:body.market,account:body.account,house:body.house,accountId:body.accountId,result:'Pendente',prize:0};
   result=await database().prepare(insertRecordSql).bind(id,'alavancagem',JSON.stringify(data),snapshot).run();
   if(!result.meta.changes)return Response.json({error:'Os dados mudaram. Sincronize e confira antes de repetir.'},{status:409});
-  if(mirrorNext){
+  if(mirrorGroup&&mirrorNext){
    const rowsAfter=[...rows,{id,kind:'alavancagem',data,revision:1}];
    const snapshotAfter=recordsSnapshot(rowsAfter);
-   const mirrorData={...mirrorNext,stake:groupDefaultStake(rowsAfter,'individual'),group:'individual',event:body.event,date:body.date,odd:body.odd,market:body.market,account:body.account,house:body.house,accountId:body.accountId,result:'Pendente',prize:0};
+   const mirrorData={...mirrorNext,stake:groupDefaultStake(rowsAfter,mirrorGroup),group:mirrorGroup,event:body.event,date:body.date,odd:body.odd,market:body.market,account:body.account,house:body.house,accountId:body.accountId,result:'Pendente',prize:0};
    const mirrorResult=await database().prepare(insertRecordSql).bind(crypto.randomUUID(),'alavancagem',JSON.stringify(mirrorData),snapshotAfter).run();
-   if(!mirrorResult.meta.changes)return Response.json({error:'A entrada da Alavancagem 1,3 foi registrada, mas não foi possível espelhar em Individual automaticamente. Sincronize e registre manualmente em Individual.'},{status:409});
+   if(!mirrorResult.meta.changes)return Response.json({error:'A entrada foi registrada, mas não foi possível espelhar automaticamente na Individual correspondente. Sincronize e registre manualmente.'},{status:409});
   }
   return Response.json({ok:true},{headers:{'Cache-Control':'no-store'}});
  }else if(body.action==='settle'){
