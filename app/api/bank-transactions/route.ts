@@ -2,6 +2,7 @@ import {z} from 'zod';
 import {database} from '@/lib/store';
 import {prepareBankOperation} from '@/lib/bank-transactions';
 import type {RecordItem} from '@/lib/banca';
+import {backupLog} from '@/lib/backup';
 
 const schema=z.object({type:z.enum(['deposit','withdraw','transfer']),source:z.string().min(1),sourceRevision:z.number().int().positive(),destination:z.string().optional(),destinationRevision:z.number().int().positive().optional(),amount:z.number().int().positive().max(10000000000)});
 export async function POST(req:Request){
@@ -15,6 +16,7 @@ export async function POST(req:Request){
   const change=prepareBankOperation(rows,op);
   const saved=await db.prepare(change.sql).bind(...change.bindings).run();
   if(saved.meta.changes!==change.count)return Response.json({error:'Os saldos mudaram em outro dispositivo. Feche esta janela e sincronize antes de tentar novamente.'},{status:409});
+  await backupLog({kind:'bank_transaction',action:op.type,summary:op.type+' · R$ '+(op.amount/100).toFixed(2).replace('.',',')+(op.destination?' · '+op.source+' → '+op.destination:' · '+op.source),data:op});
   return Response.json({ok:true},{headers:{'Cache-Control':'no-store'}});
  }catch(e){return Response.json({error:e instanceof z.ZodError?'Confira o valor e os bancos selecionados.':e instanceof Error?e.message:'Não foi possível registrar a operação.'},{status:400});}
 }
