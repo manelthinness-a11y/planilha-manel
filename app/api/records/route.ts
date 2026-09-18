@@ -12,6 +12,17 @@ function summarize(kind:string,data:any):string{
  if(kind==='arb')return data.event+' · '+data.market;
  return kind;
 }
+const brl=(cents:number)=>(cents/100).toFixed(2).replace('.',',');
+const accountLabel=(rows:any[],id:string)=>{const a=rows.find((r:any)=>r.kind==='account'&&r.id===id);return a?a.data.house+' · '+a.data.holder:id;};
+const betsLabel=(rows:any[],bets:any[])=>bets.map((b:any)=>accountLabel(rows,b.account)+': R$ '+brl(b.stake)+' @ '+b.odd+' ('+b.status+(['Ganhou','Cashout'].includes(b.status)?', retorno R$ '+brl(b.returned):'')+')').join(' | ');
+function backupColumns(kind:string,action:'create'|'update'|'delete',data:any,rows:any[]):[string,string|number][]{
+ const acao=action==='create'?'Cadastro':action==='update'?'Atualização':'Exclusão';
+ if(kind==='account')return [['Ação',acao],['Casa',data.house],['Titular',data.holder],['Saldo inicial (R$)',brl(data.initial)],['Observação',data.note||'']];
+ if(kind==='movement')return [['Ação',acao],['Conta',accountLabel(rows,data.account)],['Tipo',data.type],['Valor (R$)',brl(data.amount)],['Data',data.date],['Observação',data.note||'']];
+ if(kind==='bank')return [['Ação',acao],['Banco',data.bank],['Titular',data.holder],['Saldo (R$)',brl(data.balance)],['Observação',data.note||'']];
+ if(kind==='arb')return [['Ação',acao],['Evento',data.event],['Mercado',data.market],['Data',data.date],['Nº apostas',data.bets.length],['Apostas',betsLabel(rows,data.bets)],['Observação',data.note||'']];
+ return [];
+}
 const cents=z.number().int().min(0).max(10000000000), str=z.string().trim().min(1).max(200);
 const bet=z.object({id:str,groupId:str.optional(),account:str,selection:z.string().trim().min(1).max(5000),combination:z.array(z.object({market:str,selection:str})).max(12).optional(),capital:z.enum(['Real','Freebet']),lot:z.string().optional(),previousLoss:cents.optional(),stake:cents.positive(),odd:z.number().min(1).max(10000),status:z.enum(['Pendente','Ganhou','Perdeu','Cancelada','Cashout']),returned:cents,reissued:z.boolean().optional()});
 const date=z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -43,7 +54,7 @@ export async function POST(req:Request){try{
  const res=old?await database().prepare(updateRecordSql).bind(JSON.stringify(data),id,body.revision,snapshot).run():await database().prepare(insertRecordSql).bind(id,body.kind,JSON.stringify(data),snapshot).run();
  if(!res.meta.changes)return Response.json({error:'Os dados mudaram em outro dispositivo. Sincronize e confira o registro antes de salvar novamente.',code:'stale'},{status:409});
  const saved={id,kind:body.kind,data,revision:old?old.revision+1:1};
- await backupLog({kind:body.kind,action:old?'update':'create',id,revision:saved.revision,summary:summarize(body.kind,data),data});
+ await backupLog({kind:body.kind,action:old?'update':'create',id,revision:saved.revision,summary:summarize(body.kind,data),data,columns:backupColumns(body.kind,old?'update':'create',data,rows)});
  return Response.json({id,rows:[saved,...rows.filter((r:any)=>r.id!==id)]},{headers:{'Cache-Control':'no-store'}});
  }catch(e){console.error(e);return Response.json({error:e instanceof z.ZodError?'Confira os campos obrigatórios e valores.':e instanceof Error?e.message:'Não foi possível salvar.'},{status:400});}}
 
@@ -58,7 +69,7 @@ export async function DELETE(req:Request){try{
   const sql="DELETE FROM records WHERE id=? AND kind='account' AND revision=? AND COALESCE((SELECT group_concat(token, '|') FROM (SELECT id || ':' || revision AS token FROM records ORDER BY id)), '') = ?";
   const result=await database().prepare(sql).bind(body.id,body.revision,recordsSnapshot(rows)).run();
   if(!result.meta.changes)return Response.json({error:'Os dados mudaram. Sincronize e confira a conta antes de excluir.',code:'stale'},{status:409});
-  await backupLog({kind:'account',action:'delete',id:body.id,revision:body.revision,summary:summarize('account',old.data),data:old.data});
+  await backupLog({kind:'account',action:'delete',id:body.id,revision:body.revision,summary:summarize('account',old.data),data:old.data,columns:backupColumns('account','delete',old.data,rows)});
   return Response.json({id:body.id,rows:rows.filter((r:any)=>r.id!==body.id)},{headers:{'Cache-Control':'no-store'}});
  }
  if(!old||old.kind!=='arb')return Response.json({error:'Arbitragem não encontrada. Sincronize os dados.',code:'stale'},{status:404});
@@ -67,6 +78,6 @@ export async function DELETE(req:Request){try{
  if(dependents.length)return Response.json({error:'Esta arbitragem gerou uma freebet usada em '+dependents.map(r=>r.data.event).join(', ')+'. Edite ou exclua primeiro a operação que usa esse crédito.',code:'freebet_dependency'},{status:409});
  const res=await database().prepare(deleteArbitrageSql).bind(body.id,body.revision,recordsSnapshot(rows)).run();
  if(!res.meta.changes)return Response.json({error:'Os dados mudaram em outro dispositivo. Sincronize e confira a arbitragem antes de excluir.',code:'stale'},{status:409});
- await backupLog({kind:'arb',action:'delete',id:body.id,revision:body.revision,summary:summarize('arb',old.data),data:old.data});
+ await backupLog({kind:'arb',action:'delete',id:body.id,revision:body.revision,summary:summarize('arb',old.data),data:old.data,columns:backupColumns('arb','delete',old.data,rows)});
  return Response.json({id:body.id,rows:rows.filter((r:any)=>r.id!==body.id)},{headers:{'Cache-Control':'no-store'}});
  }catch(e){console.error(e);return Response.json({error:e instanceof z.ZodError?'Confira a arbitragem selecionada.':'Não foi possível excluir. Tente novamente.'},{status:e instanceof z.ZodError?400:503});}}

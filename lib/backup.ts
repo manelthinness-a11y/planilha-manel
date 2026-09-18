@@ -1,6 +1,6 @@
 import {env} from 'cloudflare:workers';
 import {getRequestExecutionContext} from 'vinext/shims/request-context';
-type BackupEvent={kind:string;action:string;id?:string;revision?:number;summary?:string;data?:unknown};
+type BackupEvent={kind:string;action:string;id?:string;revision?:number;summary?:string;data?:unknown;columns?:[string,string|number][]};
 
 async function sendBackup(event:BackupEvent):Promise<void>{
  const e=env as unknown as {BACKUP_WEBHOOK_URL?:string;BACKUP_WEBHOOK_TOKEN?:string};
