@@ -59,7 +59,7 @@ export async function POST(req:Request){try{
  }else{
   const settingId=defaultStakeSettingId(body.group);
   const row=rows.find(r=>r.kind==='alavancagem_setting'&&r.id===settingId);
-  const data={value:body.value};
+  const data={value:body.value,group:body.group};
   result=row
    ?await database().prepare(updateRecordSql).bind(JSON.stringify(data),row.id,row.revision,snapshot).run()
    :await database().prepare(insertRecordSql).bind(settingId,'alavancagem_setting',JSON.stringify(data),snapshot).run();
