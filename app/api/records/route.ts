@@ -10,10 +10,13 @@ function summarize(kind:string,data:any):string{
  if(kind==='movement')return data.type+' · R$ '+(data.amount/100).toFixed(2).replace('.',',');
  if(kind==='bank')return data.bank+' · '+data.holder;
  if(kind==='arb')return data.event+' · '+data.market;
+ if(kind==='commission_person')return data.name;
+ if(kind==='commission_entry')return data.type+' · R$ '+(data.amount/100).toFixed(2).replace('.',',');
  return kind;
 }
 const brl=(cents:number)=>(cents/100).toFixed(2).replace('.',',');
 const accountLabel=(rows:any[],id:string)=>{const a=rows.find((r:any)=>r.kind==='account'&&r.id===id);return a?a.data.house+' · '+a.data.holder:id;};
+const personLabel=(rows:any[],id:string)=>{const p=rows.find((r:any)=>r.kind==='commission_person'&&r.id===id);return p?p.data.name:id;};
 const betsLabel=(rows:any[],bets:any[])=>bets.map((b:any)=>accountLabel(rows,b.account)+': R$ '+brl(b.stake)+' @ '+b.odd+' ('+b.status+(['Ganhou','Cashout'].includes(b.status)?', retorno R$ '+brl(b.returned):'')+')').join(' | ');
 function backupColumns(kind:string,action:'create'|'update'|'delete',data:any,rows:any[]):[string,string|number][]{
  const acao=action==='create'?'Cadastro':action==='update'?'Atualização':'Exclusão';
@@ -21,6 +24,8 @@ function backupColumns(kind:string,action:'create'|'update'|'delete',data:any,ro
  if(kind==='movement')return [['Ação',acao],['Conta',accountLabel(rows,data.account)],['Tipo',data.type],['Valor (R$)',brl(data.amount)],['Data',data.date],['Observação',data.note||'']];
  if(kind==='bank')return [['Ação',acao],['Banco',data.bank],['Titular',data.holder],['Saldo (R$)',brl(data.balance)],['Observação',data.note||'']];
  if(kind==='arb')return [['Ação',acao],['Evento',data.event],['Mercado',data.market],['Data',data.date],['Nº apostas',data.bets.length],['Apostas',betsLabel(rows,data.bets)],['Observação',data.note||'']];
+ if(kind==='commission_person')return [['Ação',acao],['Nome',data.name],['Observação',data.note||'']];
+ if(kind==='commission_entry')return [['Ação',acao],['Pessoa',personLabel(rows,data.personId)],['Tipo',data.type],['Valor (R$)',brl(data.amount)],['Data',data.date],['Observação',data.note||'']];
  return [];
 }
 const cents=z.number().int().min(0).max(10000000000), str=z.string().trim().min(1).max(200);
@@ -28,17 +33,19 @@ const bet=z.object({id:str,groupId:str.optional(),account:str,selection:z.string
 const date=z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const bankSchema=z.object({bank:str.transform(v=>v.replace(/\s+/g,' ')),holder:str.transform(v=>v.replace(/\s+/g,' ')),balance:z.number().int().min(-10000000000).max(10000000000),note:z.string().max(1000).default('')});
 const promo=z.object({account:str,expected:cents.positive(),status:z.enum(['Aguardando','Recebida','Não recebida']),received:cents.default(0),receivedDate:z.union([date,z.literal('')]).default(''),expires:z.union([date,z.literal('')]).default(''),condition:z.string().max(1000).default(''),lossPct:z.number().min(0).max(100).nullable().default(null)}).superRefine((p,c)=>{if(p.status==='Recebida'&&(!p.received||!p.receivedDate))c.addIssue({code:z.ZodIssueCode.custom,message:'Informe o valor e a data de recebimento'});if(p.status==='Recebida'&&p.expires&&p.expires<p.receivedDate)c.addIssue({code:z.ZodIssueCode.custom,message:'Vencimento anterior ao recebimento'});});
-const schemas={bank:bankSchema,account:z.object({house:str,holder:str,initial:cents,note:z.string().max(1000).default('')}),movement:z.object({account:str,type:z.enum(['Depósito','Saque','Ajuste positivo','Ajuste negativo','Freebet recebida']),amount:cents.positive(),date:str,expires:z.string().optional(),note:z.string().max(1000).default('')}),arb:z.object({event:str,market:str,date:str,note:z.string().max(1000).default(''),bets:z.array(bet).min(2).max(60),promo:promo.nullable().optional()})};
+const schemas={bank:bankSchema,account:z.object({house:str,holder:str,initial:cents,note:z.string().max(1000).default('')}),movement:z.object({account:str,type:z.enum(['Depósito','Saque','Ajuste positivo','Ajuste negativo','Freebet recebida']),amount:cents.positive(),date:str,expires:z.string().optional(),note:z.string().max(1000).default('')}),arb:z.object({event:str,market:str,date:str,note:z.string().max(1000).default(''),bets:z.array(bet).min(2).max(60),promo:promo.nullable().optional()}),commission_person:z.object({name:str,note:z.string().max(1000).default('')}),commission_entry:z.object({personId:str,type:z.enum(['Comissão','Débito','Pagamento']),amount:cents.positive(),date:str,note:z.string().max(1000).default('')})};
 async function all(){const r=await database().prepare('SELECT * FROM records ORDER BY rowid DESC').all();return r.results.map((r:any)=>({...r,data:JSON.parse(r.data)}));}
 export async function GET(){try{return Response.json({rows:await all()},{headers:{'Cache-Control':'no-store, max-age=0'}});}catch(e){console.error(e);return Response.json({error:'Não foi possível carregar os dados. Tente novamente.'},{status:503});}}
 export async function POST(req:Request){try{
  const origin=req.headers.get('origin');if(origin&&origin!==new URL(req.url).origin)return Response.json({error:'Origem inválida'},{status:403});
- const body=z.object({kind:z.enum(["account","movement","arb","bank"]),data:z.unknown(),id:z.string().optional(),revision:z.number().int().optional()}).parse(await req.json());if(!Object.hasOwn(schemas,body.kind))throw new Error('Registro inválido');
+ const body=z.object({kind:z.enum(["account","movement","arb","bank","commission_person","commission_entry"]),data:z.unknown(),id:z.string().optional(),revision:z.number().int().optional()}).parse(await req.json());if(!Object.hasOwn(schemas,body.kind))throw new Error('Registro inválido');
  const data:any=schemas[body.kind as keyof typeof schemas].parse(body.data);const rows=await all();const old=body.id?rows.find((r:any)=>r.id===body.id):null;
  if(body.id&&(!old||old.kind!==body.kind))throw new Error('Registro não encontrado');
  if(old&&old.revision!==body.revision)return Response.json({error:'Este registro mudou em outro dispositivo. Atualize antes de editar.',code:'stale'},{status:409});
  if(body.kind==='bank'&&rows.some((r:any)=>r.kind==='bank'&&r.id!==body.id&&bankNameKey(r.data.bank)===bankNameKey(data.bank)&&bankNameKey(r.data.holder)===bankNameKey(data.holder)))return Response.json({error:'Este banco já está cadastrado para essa pessoa. Edite o banco existente para atualizar o saldo.'},{status:400});
  if(body.kind==='account'&&rows.some((r:any)=>r.kind==='account'&&r.id!==body.id&&r.data.house.toLowerCase()===data.house?.toLowerCase()&&r.data.holder.toLowerCase()===data.holder?.toLowerCase()))throw new Error('Essa casa e titular já estão cadastrados');
+ if(body.kind==='commission_person'&&rows.some((r:any)=>r.kind==='commission_person'&&r.id!==body.id&&r.data.name.toLowerCase()===data.name?.toLowerCase()))throw new Error('Essa pessoa já está cadastrada em Comissões');
+ if(body.kind==='commission_entry'&&!rows.some((r:any)=>r.kind==='commission_person'&&r.id===(data as any).personId))throw new Error('Selecione uma pessoa válida');
  const accounts=new Set(rows.filter((r:any)=>r.kind==='account').map((r:any)=>r.id));
  if(body.kind==='movement'&&!accounts.has((data as any).account))throw new Error('Selecione uma conta válida');
  if(body.kind==='arb')for(const b of (data as any).bets){if(!accounts.has(b.account))throw new Error('Selecione uma conta válida');if(b.capital==='Freebet'&&!grantsOf(rows).some((g:any)=>g.id===b.lot&&g.account===b.account))throw new Error('Selecione a freebet correspondente à conta');}
@@ -70,6 +77,16 @@ export async function DELETE(req:Request){try{
   const result=await database().prepare(sql).bind(body.id,body.revision,recordsSnapshot(rows)).run();
   if(!result.meta.changes)return Response.json({error:'Os dados mudaram. Sincronize e confira a conta antes de excluir.',code:'stale'},{status:409});
   await backupLog({kind:'account',action:'delete',id:body.id,revision:body.revision,summary:summarize('account',old.data),data:old.data,columns:backupColumns('account','delete',old.data,rows)});
+  return Response.json({id:body.id,rows:rows.filter((r:any)=>r.id!==body.id)},{headers:{'Cache-Control':'no-store'}});
+ }
+ if(old?.kind==='commission_person'){
+  if(old.revision!==body.revision)return Response.json({error:'Este cadastro mudou. Sincronize antes de excluir.',code:'stale'},{status:409});
+  const linked=rows.some((r:any)=>r.kind==='commission_entry'&&r.data.personId===body.id);
+  if(linked)return Response.json({error:'Esta pessoa possui comissões, pagamentos ou débitos vinculados. A exclusão foi bloqueada para preservar o histórico.',code:'commission_dependency'},{status:409});
+  const sql="DELETE FROM records WHERE id=? AND kind='commission_person' AND revision=? AND COALESCE((SELECT group_concat(token, '|') FROM (SELECT id || ':' || revision AS token FROM records ORDER BY id)), '') = ?";
+  const result=await database().prepare(sql).bind(body.id,body.revision,recordsSnapshot(rows)).run();
+  if(!result.meta.changes)return Response.json({error:'Os dados mudaram. Sincronize e confira antes de excluir.',code:'stale'},{status:409});
+  await backupLog({kind:'commission_person',action:'delete',id:body.id,revision:body.revision,summary:summarize('commission_person',old.data),data:old.data,columns:backupColumns('commission_person','delete',old.data,rows)});
   return Response.json({id:body.id,rows:rows.filter((r:any)=>r.id!==body.id)},{headers:{'Cache-Control':'no-store'}});
  }
  if(!old||old.kind!=='arb')return Response.json({error:'Arbitragem não encontrada. Sincronize os dados.',code:'stale'},{status:404});
