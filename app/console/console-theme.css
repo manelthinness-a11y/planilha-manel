@@ -1,0 +1,132 @@
+/* Tema visual "Console" — só se aplica na rota /console, via html[data-console-theme].
+   Não toca em nenhuma classe usada na rota principal "/": aqui a gente só
+   sobrescreve a aparência das MESMAS classes, escopado por esse atributo,
+   então o site de produção continua exatamente igual. */
+
+html[data-console-theme] {
+  --console-bg:#FAFAF9; --console-card:#FFFFFF; --console-ink:#1B1B18; --console-muted:#6B675E; --console-line:#E7E3DC;
+  --console-accent:#D97706; --console-accent-soft:#FBE7CC; --console-pos:#1E8E5A; --console-pos-soft:#E1F3E9;
+  --console-neg:#C43D3D; --console-neg-soft:#FAE3E1;
+  --console-side-bg:#171512; --console-side-fg:#E9E4DA; --console-side-muted:#8A8478; --console-side-active:#2A241C;
+}
+html[data-console-theme] body {
+  font-family: 'Rubik', Arial, sans-serif;
+  background: var(--console-bg);
+  color: var(--console-ink);
+}
+html[data-console-theme] h1,
+html[data-console-theme] h2,
+html[data-console-theme] h3,
+html[data-console-theme] .stat strong,
+html[data-console-theme] .account-card>strong,
+html[data-console-theme] .person-balance>strong,
+html[data-console-theme] .arb-result strong,
+html[data-console-theme] .manel-wordmark>b {
+  font-family: 'Manrope', Arial, sans-serif;
+}
+
+/* Topbar */
+html[data-console-theme] .topbar { background: var(--console-card); border-bottom: 1px solid var(--console-line); }
+html[data-console-theme] .manel-wordmark>b { color: var(--console-ink); }
+html[data-console-theme] .manel-wordmark .manel-period { color: var(--console-accent); }
+html[data-console-theme] .manel-wordmark>small { color: var(--console-muted); }
+html[data-console-theme] .top-label,
+html[data-console-theme] .top-right { color: var(--console-muted); }
+html[data-console-theme] .avatar { background: var(--console-accent-soft); color: #7A4A0A; }
+html[data-console-theme] .dashboard-sync { background: var(--console-accent-soft); border-color: #ECC383; color: #7A4A0A; }
+
+/* Menu hamburguer (só aparece no mobile) */
+html[data-console-theme] .console-menu-btn{display:none;flex-direction:column;justify-content:center;align-items:center;gap:4px;width:36px;height:36px;border:1px solid var(--console-line);border-radius:8px;background:var(--console-card);flex:0 0 auto;padding:0;}
+html[data-console-theme] .console-menu-btn span{display:block;width:16px;height:2px;background:var(--console-ink);}
+html[data-console-theme] .console-overlay{display:none;}
+
+/* Sidebar */
+html[data-console-theme] aside { background: var(--console-side-bg); border-right: none; }
+html[data-console-theme] .nav-caption { color: var(--console-side-muted); }
+html[data-console-theme] .nav-item { color: var(--console-side-fg); }
+html[data-console-theme] .nav-item:hover { background: #221D16 !important; }
+html[data-console-theme] .nav-item[data-state=active] { background: var(--console-side-active) !important; color: #F3C77A !important; }
+html[data-console-theme] .aside-note { color: var(--console-side-muted); }
+html[data-console-theme] .aside-note .mini-brand { color: var(--console-side-muted); }
+
+/* Conteúdo principal */
+html[data-console-theme] main { background: var(--console-bg); }
+html[data-console-theme] .eyebrow { color: var(--console-accent) !important; }
+html[data-console-theme] .page-heading p { color: var(--console-muted); }
+
+/* Botões */
+html[data-console-theme] .primary { background: var(--console-accent); border-color: var(--console-accent); }
+html[data-console-theme] .primary:hover { background: #B8630A; }
+html[data-console-theme] .primary.negative { background: var(--console-neg); border-color: var(--console-neg); }
+html[data-console-theme] .primary.negative:hover { background: #A32F2F; }
+html[data-console-theme] .secondary { background: var(--console-card); border-color: var(--console-line); color: var(--console-ink); }
+html[data-console-theme] .text-button { color: var(--console-accent); }
+html[data-console-theme] .text-button.negative { color: var(--console-neg); }
+
+/* Cards de estatística (Painel) */
+html[data-console-theme] .stat { border-color: var(--console-line); background: var(--console-card); border-radius: 12px; }
+html[data-console-theme] .stat>span { color: var(--console-muted); }
+html[data-console-theme] .stat.featured { background: var(--console-side-bg); color: #fff; border: none; }
+html[data-console-theme] .stat.featured span, html[data-console-theme] .stat.featured small { color: var(--console-side-muted); }
+html[data-console-theme] .stat.featured strong { color: #F3C77A; }
+html[data-console-theme] .positive { color: var(--console-pos); }
+html[data-console-theme] .negative { color: var(--console-neg); }
+
+/* Contas */
+html[data-console-theme] .account-card { border-color: var(--console-line); border-radius: 12px; }
+html[data-console-theme] .account-card:hover { border-color: var(--console-accent); }
+html[data-console-theme] .house-icon { background: var(--console-accent-soft); color: #7A4A0A; border-radius: 8px; }
+html[data-console-theme] .account-actions button { background: var(--console-accent-soft); color: #7A4A0A; border-color: #ECC383; }
+html[data-console-theme] .account-actions button:hover { background: #F5D8A6; }
+html[data-console-theme] .account-actions button+button { background: var(--console-card); color: var(--console-ink); border-color: var(--console-line); }
+html[data-console-theme] .person-balance { background: var(--console-side-bg); }
+html[data-console-theme] .person-balance>span, html[data-console-theme] .person-balance>small { color: var(--console-side-muted); }
+html[data-console-theme] .person-balance>strong { color: #F3C77A; }
+
+/* Arbitragens */
+html[data-console-theme] .arb-list, html[data-console-theme] .panel { border-color: var(--console-line); border-radius: 12px; }
+html[data-console-theme] .arb-row, html[data-console-theme] .arb-card { border-color: var(--console-line); }
+html[data-console-theme] .arb-icon { background: var(--console-accent-soft); color: #7A4A0A; }
+html[data-console-theme] .pill { background: var(--console-accent-soft); color: #7A4A0A; }
+html[data-console-theme] .pill.done { background: var(--console-pos-soft); color: var(--console-pos); }
+html[data-console-theme] .losses-viewer { background: var(--console-neg-soft); border-color: #ECC0C0; color: #7A2323; }
+html[data-console-theme] .losses-viewer-header strong, html[data-console-theme] .losses-viewer-list b { color: var(--console-neg); }
+
+/* Tabelas */
+html[data-console-theme] table { border-color: var(--console-line); }
+html[data-console-theme] th { background: #F5F3EF; color: var(--console-muted); border-color: var(--console-line); }
+html[data-console-theme] td { border-color: var(--console-line); }
+
+/* Formulários / modal */
+html[data-console-theme] .field input, html[data-console-theme] .picker { border-color: var(--console-line); background: var(--console-card); color: var(--console-ink); }
+html[data-console-theme] .editor { background: var(--console-card); border-radius: 16px; }
+html[data-console-theme] .bet-editor, html[data-console-theme] .combination-editor { border-color: var(--console-line); background: #F5F3EF; }
+html[data-console-theme] .promo-editor { border-color: #ECC383; }
+html[data-console-theme] .settlement-preview { background: var(--console-pos-soft); border-color: #BFE0CB; }
+html[data-console-theme] .split-summary { background: var(--console-accent-soft); }
+html[data-console-theme] .quiet-empty, html[data-console-theme] .empty { border-color: var(--console-line); background: var(--console-card); color: var(--console-muted); }
+html[data-console-theme] .error { background: var(--console-neg-soft); color: #7A2323; }
+html[data-console-theme] .delete-error { background: var(--console-neg-soft); color: #7A2323; }
+html[data-console-theme] .delete-totals { background: #F5F3EF; border-color: var(--console-line); }
+html[data-console-theme] .promo-overview>div { border-color: var(--console-line); }
+html[data-console-theme] .promo-overview strong { color: var(--console-ink); }
+
+/* Mobile: menu vira gaveta deslizante em vez de rolar na horizontal */
+@media (max-width: 760px) {
+  html[data-console-theme] .console-menu-btn { display: flex; }
+  html[data-console-theme] .top-label { display: none; }
+  html[data-console-theme] .workspace { display: block; position: relative; }
+  html[data-console-theme] .workspace aside {
+    position: fixed; top: 0; left: 0; height: 100vh; width: 250px; z-index: 40;
+    transform: translateX(-100%); transition: transform .2s ease;
+    box-shadow: 2px 0 18px rgba(0,0,0,.3);
+    overflow-y: auto; padding: 18px 12px; border-right: 0;
+  }
+  html[data-console-theme] .workspace aside.console-nav-open { transform: translateX(0); }
+  html[data-console-theme] .nav-caption, html[data-console-theme] .aside-note { display: block; }
+  html[data-console-theme] .navigation { flex-direction: column; min-width: 0; gap: 6px; }
+  html[data-console-theme] .nav-item { padding: 13px 12px; font-size: 14px; }
+  html[data-console-theme] .console-overlay {
+    display: block; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 35;
+  }
+}
