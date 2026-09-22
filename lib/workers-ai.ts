@@ -39,5 +39,12 @@ export async function chatJson(env:WorkersAiEnv,systemPrompt:string,userText:str
   max_tokens:1024,
   response_format:{type:'json_object'},
  });
- return String(result?.response||'').trim();
+ const response=result?.response;
+ // With response_format:json_object this model sometimes hands back `response` already parsed
+ // into an object instead of a JSON string — String(anObject) silently degrades to the useless
+ // "[object Object]" (no '{' in it, so extractJson's brace-scan finds nothing and every command
+ // was reported as an unparseable "bot parse failure"). Re-serialize it so the caller always gets
+ // real JSON text either way.
+ if(response&&typeof response==='object')return JSON.stringify(response);
+ return String(response||'').trim();
 }

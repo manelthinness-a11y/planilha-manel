@@ -89,7 +89,10 @@ async function handleMessage(e:Env,message:any):Promise<void>{
  const json=extractJson(raw);
  const parsed=json?botCommandSchema.safeParse(json):null;
  if(!parsed||!parsed.success){
-  console.error('bot parse failure',raw);
+  // Single string arg on purpose: wrangler tail's console output only shows a
+  // shallow preview of extra object args, which is how the chatJson bug above
+  // hid behind an unhelpful "[object Object]" in the logs instead of the JSON.
+  console.error('bot parse failure: '+raw+(parsed?' | zod: '+JSON.stringify(parsed.error.issues):''));
   await sendMessage(e,chatId,`🎤 Entendi: "${esc(text)}"\n\n❌ Não consegui transformar isso num comando válido. Pode repetir dizendo claramente a ação, a conta/casa e o valor em reais?`);
   return;
  }
