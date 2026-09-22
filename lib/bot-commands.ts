@@ -9,7 +9,16 @@ export const toCents=(reais:number)=>Math.round(reais*100);
 export const brl=(cents:number)=>(cents/100).toFixed(2).replace('.',',');
 export const todayISO=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Sao_Paulo'}).format(new Date());
 
-const norm=(v:string)=>v.normalize('NFKD').replace(/[̀-ͯ]/g,'').trim().toLowerCase().replace(/\s+/g,' ');
+// Strips accents AND punctuation (commas, periods, parens — the LLM's "conta" field sometimes
+// keeps a stray comma from how the user phrased it, e.g. "Stake, Manel") down to plain words.
+const norm=(v:string)=>v.normalize('NFKD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim().replace(/\s+/g,' ');
+
+// Two words "match" if they're identical, or — only once both are long enough (3+ chars) — one
+// contains the other. Without the length guard, single-letter words like the "a" in "viva a sorte"
+// trivially match almost any query word that happens to contain an "a", producing bogus hits.
+function wordMatch(w:string,cw:string):boolean{
+ return w===cw||(w.length>=3&&cw.length>=3&&(cw.includes(w)||w.includes(cw)));
+}
 
 function matchScore(query:string,candidate:string):number{
  const q=norm(query),c=norm(candidate);
@@ -17,24 +26,39 @@ function matchScore(query:string,candidate:string):number{
  if(c===q)return 100;
  if(c.includes(q)||q.includes(c))return 80;
  const qWords=q.split(' '),cWords=c.split(' ');
- const hits=qWords.filter(w=>cWords.some(cw=>cw.includes(w)||w.includes(cw))).length;
+ const hits=qWords.filter(w=>cWords.some(cw=>wordMatch(w,cw))).length;
  return hits/Math.max(qWords.length,1)*60;
 }
 
+/** Best-scoring item, or null if nothing clears the threshold OR if two+ items tie for the top
+ * score. The tie case matters a lot here: this user's accounts mostly share the same titular
+ * ("Manel"), so a query that's just a person's name (no house name) scores 100/80 identically
+ * against dozens of accounts — picking "whichever came first" in that case is silently guessing
+ * the wrong account instead of admitting the query wasn't specific enough. */
 function bestMatch<T>(query:string,items:T[],labels:(item:T)=>string[]):T|null{
  let best:{item:T;s:number}|null=null;
+ let tied=false;
  for(const item of items){
   const s=Math.max(...labels(item).map(l=>matchScore(query,l)));
-  if(!best||s>best.s)best={item,s};
+  if(!best||s>best.s){best={item,s};tied=false;}
+  else if(s===best.s&&s>=35)tied=true;
  }
- return best&&best.s>=35?best.item:null;
+ if(!best||best.s<35||tied)return null;
+ return best.item;
 }
 
+// Match against the combined "casa · titular" string ONLY — not house-alone or holder-alone as
+// separate candidate labels. This user has ~70 accounts and the same few titulars repeat across
+// most of them ("Manel" alone on ~60), so a standalone holder-only label let a query with no house
+// name score a perfect/near-perfect match against every one of that person's accounts, and
+// bestMatch's tie-break (first in list) would then silently pick the wrong one. Matching only the
+// combined string forces a real house name to be present for a confident match, and still lets a
+// bare house name ("Pagolbet") resolve fine on its own since query and candidate overlap directly.
 export function resolveAccount(rows:RecordItem[],query:string){
- return bestMatch(query,rows.filter(r=>r.kind==='account'),r=>[r.data.house+' '+r.data.holder,r.data.house,r.data.holder]);
+ return bestMatch(query,rows.filter(r=>r.kind==='account'),r=>[r.data.house+' '+r.data.holder]);
 }
 export function resolveBank(rows:RecordItem[],query:string){
- return bestMatch(query,rows.filter(r=>r.kind==='bank'),r=>[r.data.bank+' '+r.data.holder,r.data.bank,r.data.holder]);
+ return bestMatch(query,rows.filter(r=>r.kind==='bank'),r=>[r.data.bank+' '+r.data.holder]);
 }
 export function resolvePerson(rows:RecordItem[],query:string){
  return bestMatch(query,rows.filter(r=>r.kind==='commission_person'),r=>[r.data.name]);
@@ -104,7 +128,7 @@ export function buildSystemPrompt(rows:RecordItem[]):string{
 
 Data de hoje: ${todayISO()} (use este valor no campo "data" quando o usuário não disser uma data).
 
-Contas cadastradas (formato "casa · titular"; use os nomes de casa/titular para preencher o campo "conta" o mais parecido possível com o que está cadastrado):
+Contas cadastradas (formato "casa · titular"; use os nomes de casa/titular para preencher o campo "conta" o mais parecido possível com o que está cadastrado). ATENÇÃO: a grande maioria das contas tem o titular "Manel" — o nome do app também é "Planilha Manel", mas isso é só o nome do app, não elimina o titular real de cada conta. Como o titular se repete tanto, é o nome da CASA (a banca/site de apostas, ex: "Bolsa de apostas", "Pagolbet", "Stake") que de fato diferencia uma conta da outra. Por isso, sempre que o usuário citar um nome de casa/banca, esse nome tem que aparecer no campo "conta" — nunca preencha "conta" só com o titular ("Manel"), mesmo que o titular seja a última coisa que a pessoa falou:
 ${accounts}
 
 Bancos cadastrados (formato "banco · titular"):
@@ -139,6 +163,7 @@ Escolha exatamente UMA "acao" dentre estas e preencha os campos daquele formato 
 
 Regras importantes:
 - Nunca invente contas, bancos ou pessoas que não estejam nas listas acima — apenas repita o nome mais parecido possível do que a pessoa falou, mesmo que a grafia não seja exata (a resolução final é feita por outro sistema).
+- Exemplo: se a pessoa falar "Saque 50 reais, Manel, bolsa de apostas", o campo "conta" deve ser "bolsa de apostas" (ou "bolsa de apostas Manel") — NÃO "Manel" sozinho, porque "Manel" é titular de dezenas de contas diferentes e não identifica qual delas é a certa.
 - Se o comando pedir para "registrar", "cadastrar", "lançar", "entrou", "criar" algo novo, use as ações de criação. Se pedir para "bateu", "não bateu", "ganhou", "perdeu", "finalizar", "liquidar" algo que já existe, use as ações de liquidação.
 - Nunca responda com texto fora do JSON. Nunca use markdown.`;
 }

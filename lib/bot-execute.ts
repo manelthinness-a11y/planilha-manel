@@ -29,7 +29,7 @@ export function resolveCommand(cmd:BotCommand,rows:RecordItem[]):ResolveResult{
 
   case 'criar_movimentacao':{
    const acc=resolveAccount(rows,cmd.conta);
-   if(!acc)return {ok:false,error:`Não encontrei nenhuma conta parecida com "${cmd.conta}".`};
+   if(!acc)return {ok:false,error:`Não encontrei nenhuma conta parecida com "${cmd.conta}", ou o nome bate com mais de uma conta ao mesmo tempo. Diga o nome da casa junto com o titular (ex: "Pagolbet do Manel").`};
    return {ok:true,resolved:{accountId:acc.id},description:`${tipoMovLabel[cmd.tipo]} de R$ ${cmd.valor.toFixed(2).replace('.',',')} na conta ${acc.data.house} · ${acc.data.holder}${cmd.data?` — ${cmd.data}`:''}`};
   }
 
@@ -67,7 +67,7 @@ export function resolveCommand(cmd:BotCommand,rows:RecordItem[]):ResolveResult{
    for(let i=0;i<cmd.apostas.length;i++){
     const a=cmd.apostas[i];
     const acc=resolveAccount(rows,a.conta);
-    if(!acc)return {ok:false,error:`Não encontrei nenhuma conta parecida com "${a.conta}" (aposta ${i+1}).`};
+    if(!acc)return {ok:false,error:`Não encontrei nenhuma conta parecida com "${a.conta}" (aposta ${i+1}), ou o nome bate com mais de uma conta. Diga o nome da casa junto com o titular.`};
     resolved['aposta'+i+'AccountId']=acc.id;
     linhas.push(`  • ${acc.data.house} · ${acc.data.holder}: R$ ${a.valor.toFixed(2).replace('.',',')} @ ${a.odd} (${statusApostaLabel[a.status]}${['ganhou','cashout'].includes(a.status)?`, retorno R$ ${(a.retorno||0).toFixed(2).replace('.',',')}`:''})`);
    }
@@ -78,7 +78,7 @@ export function resolveCommand(cmd:BotCommand,rows:RecordItem[]):ResolveResult{
    const arb=resolvePendingArb(rows,cmd.evento);
    if(!arb)return {ok:false,error:`Não encontrei nenhuma arbitragem pendente parecida com "${cmd.evento}".`};
    const acc=resolveAccount(rows,cmd.conta);
-   if(!acc)return {ok:false,error:`Não encontrei nenhuma conta parecida com "${cmd.conta}".`};
+   if(!acc)return {ok:false,error:`Não encontrei nenhuma conta parecida com "${cmd.conta}", ou o nome bate com mais de uma conta ao mesmo tempo. Diga o nome da casa junto com o titular (ex: "Pagolbet do Manel").`};
    const bet=arb.data.bets.find((b:any)=>b.account===acc.id&&b.status==='Pendente');
    if(!bet)return {ok:false,error:`Não encontrei uma aposta pendente na conta ${acc.data.house} · ${acc.data.holder} dentro de "${arb.data.event}".`};
    return {ok:true,resolved:{arbId:arb.id,accountId:acc.id},description:`Liquidar "${arb.data.event}" — ${acc.data.house} · ${acc.data.holder}: ${statusApostaLabel[cmd.status]}${['ganhou','cashout'].includes(cmd.status)?`, retorno R$ ${(cmd.retorno||0).toFixed(2).replace('.',',')}`:''}`};
@@ -86,7 +86,7 @@ export function resolveCommand(cmd:BotCommand,rows:RecordItem[]):ResolveResult{
 
   case 'excluir_conta':{
    const acc=resolveAccount(rows,cmd.conta);
-   if(!acc)return {ok:false,error:`Não encontrei nenhuma conta parecida com "${cmd.conta}".`};
+   if(!acc)return {ok:false,error:`Não encontrei nenhuma conta parecida com "${cmd.conta}", ou o nome bate com mais de uma conta ao mesmo tempo. Diga o nome da casa junto com o titular (ex: "Pagolbet do Manel").`};
    return {ok:true,resolved:{accountId:acc.id},description:`⚠️ Excluir a conta ${acc.data.house} · ${acc.data.holder}`};
   }
 
@@ -105,7 +105,7 @@ export function resolveCommand(cmd:BotCommand,rows:RecordItem[]):ResolveResult{
   case 'alavancagem_criar':{
    const group=leverageGroupOf(cmd.grupo);
    const acc=resolveAccount(rows,cmd.conta);
-   if(!acc)return {ok:false,error:`Não encontrei nenhuma conta parecida com "${cmd.conta}".`};
+   if(!acc)return {ok:false,error:`Não encontrei nenhuma conta parecida com "${cmd.conta}", ou o nome bate com mais de uma conta ao mesmo tempo. Diga o nome da casa junto com o titular (ex: "Pagolbet do Manel").`};
    let seq:number;
    try{seq=nextLeverage(rows,group).sequence;}catch(e){return {ok:false,error:e instanceof Error?e.message:'Não foi possível calcular a próxima entrada.'};}
    return {ok:true,resolved:{accountId:acc.id,expectedSequence:String(seq)},description:`Criar entrada na Alavancagem ${cmd.grupo} (nº ${seq}) — ${cmd.evento} — ${cmd.mercado} — odd ${cmd.odd} — conta ${acc.data.house} · ${acc.data.holder}`};
@@ -127,7 +127,7 @@ export function resolveCommand(cmd:BotCommand,rows:RecordItem[]):ResolveResult{
 
   case 'odd5_criar':{
    const acc=resolveAccount(rows,cmd.conta);
-   if(!acc)return {ok:false,error:`Não encontrei nenhuma conta parecida com "${cmd.conta}".`};
+   if(!acc)return {ok:false,error:`Não encontrei nenhuma conta parecida com "${cmd.conta}", ou o nome bate com mais de uma conta ao mesmo tempo. Diga o nome da casa junto com o titular (ex: "Pagolbet do Manel").`};
    return {ok:true,resolved:{accountId:acc.id},description:`Criar ODD5 "${cmd.evento}" — ${cmd.mercados.join(' | ')} — odd ${cmd.odd} — stake R$ ${cmd.valor.toFixed(2).replace('.',',')} — conta ${acc.data.house} · ${acc.data.holder}`};
   }
 
