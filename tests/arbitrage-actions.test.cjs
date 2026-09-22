@@ -9,13 +9,14 @@ const adapter={prepare(sql){let params=[];return {
  bind(...values){params=values;return this;},
  all(){return {results:db.prepare(sql).all(...params)};},
  run(){const hook=beforeWrite;beforeWrite=null;hook?.();return {meta:{changes:db.prepare(sql).run(...params).changes}};}
-};}};
+};},
+async batch(stmts){return stmts.map(s=>s.run());}};
 const modules={};
 function source(file){
  if(modules[file])return modules[file].exports;
  const module={exports:{}};modules[file]=module;
  const code=ts.transpileModule(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
- new Function('require','module','exports',code)(name=>name==='@/lib/store'?{database:()=>adapter}:name.startsWith('@/')?source(name.slice(2)+'.ts'):require(name),module,module.exports);
+ new Function('require','module','exports',code)(name=>name==='@/lib/store'?{database:()=>adapter}:name==='cloudflare:workers'?{env:{}}:name==='vinext/shims/request-context'?{getRequestExecutionContext:()=>null}:name.startsWith('@/')?source(name.slice(2)+'.ts'):name.startsWith('.')?source(path.join(path.dirname(file),name)+'.ts'):require(name),module,module.exports);
  return module.exports;
 }
 const api=source('app/api/records/route.ts');
@@ -45,7 +46,9 @@ async function edit(r){return call('POST',{...r});}
  let result=await remove('win');assert.equal(result.status,200);
  assert.deepEqual([summary(result.data.rows).real,summary(result.data.rows).netProfit],[205000,0]);
  assert.equal(result.data.rows.length,3);assert.equal(summary(rows()).accounts.find(a=>a.id==='b').real,100000);
- assert.equal((await remove('win')).status,404);assert.equal((await remove('a')).status,404);
+ // 'a' still has the 'deposit' movement linked (only 'win' was removed above), so its
+ // deletion is blocked (409/account_dependency) by the dependency guard — not a plain 404.
+ assert.equal((await remove('win')).status,404);assert.equal((await remove('a')).status,409);
 
  reset([a,b,arb('loss',[bet('one','a','Perdeu'),bet('two','b','Cashout',10000,5000)])]);
  assert.equal(summary(rows()).netProfit,-15000);
@@ -119,6 +122,43 @@ async function edit(r){return call('POST',{...r});}
  assert.equal(bankTotals.people.find(p=>p.key==='alex').banks.length,2);
  const afterBanks=summary(persisted.rows);afterBanks.accounts.sort((a,b)=>a.id.localeCompare(b.id));
  assert.deepEqual(afterBanks,originalBanca);
+ // Saque/Depósito on a betting account auto-syncs the matching-holder bank.
+ const bankRow=(id,bankName,holder,balance)=>row(id,'bank',{bank:bankName,holder,balance,note:''});
+ // Saque credits the matching bank (money leaves the betting account, lands in the bank).
+ reset([a,b,bankRow('bk','Nubank','Teste',50000)]);
+ result=await call('POST',{kind:'movement',data:{account:'a',type:'Saque',amount:20000,date:'2026-09-14',note:''}});
+ assert.equal(result.status,200);assert.equal(result.data.warning,undefined);
+ assert.equal(result.data.rows.find(r=>r.id==='bk').data.balance,70000);
+ assert.equal(result.data.rows.find(r=>r.id==='bk').revision,2);
+ // Depósito debits the matching bank (money leaves the bank, lands in the betting account).
+ reset([a,b,bankRow('bk','Nubank','Teste',50000)]);
+ result=await call('POST',{kind:'movement',data:{account:'a',type:'Depósito',amount:15000,date:'2026-09-14',note:''}});
+ assert.equal(result.status,200);assert.equal(result.data.warning,undefined);
+ assert.equal(result.data.rows.find(r=>r.id==='bk').data.balance,35000);
+ // A Depósito that would overdraw the matching bank blocks the whole movement.
+ reset([a,b,bankRow('bk','Nubank','Teste',5000)]);
+ result=await call('POST',{kind:'movement',data:{account:'a',type:'Depósito',amount:15000,date:'2026-09-14',note:''}});
+ assert.equal(result.status,400);
+ assert.equal(rows().filter(r=>r.kind==='movement').length,0);
+ assert.equal(rows().find(r=>r.id==='bk').data.balance,5000);
+ // No bank registered for the holder: movement still saves, with a warning, no crash.
+ reset([a,b]);
+ result=await call('POST',{kind:'movement',data:{account:'a',type:'Saque',amount:20000,date:'2026-09-14',note:''}});
+ assert.equal(result.status,200);assert.ok(result.data.warning);
+ assert.equal(rows().filter(r=>r.kind==='movement').length,1);
+ // Two banks share the holder: ambiguous, so it's skipped with a warning, not guessed.
+ reset([a,b,bankRow('bk1','Nubank','Teste',50000),bankRow('bk2','Itaú','Teste',30000)]);
+ result=await call('POST',{kind:'movement',data:{account:'a',type:'Saque',amount:20000,date:'2026-09-14',note:''}});
+ assert.equal(result.status,200);assert.ok(result.data.warning);
+ assert.equal(rows().find(r=>r.id==='bk1').data.balance,50000);
+ assert.equal(rows().find(r=>r.id==='bk2').data.balance,30000);
+ // Editing an existing movement (has an id/revision) does not re-trigger the sync.
+ reset([a,b,bankRow('bk','Nubank','Teste',50000),movement('m1','a','Saque',20000)]);
+ result=await edit({kind:'movement',id:'m1',revision:1,data:{account:'a',type:'Saque',amount:30000,date:'2026-09-14',note:''}});
+ assert.equal(result.status,200);assert.equal(result.data.warning,undefined);
+ assert.equal(rows().find(r=>r.id==='bk').data.balance,50000);
+ console.log('Sincronização automática de banco (Saque/Depósito): crédito, débito, saldo insuficiente, banco ausente/ambíguo e edição sem re-sincronização verificados.');
+
  console.log('Bancos: cadastro por pessoa, saldos individuais, totais, duplicidade, edição e persistência verificados.');
  console.log('Arbitragens: edição, exclusão, recálculo por conta, perda anterior, freebets, revisões e concorrência verificados com SQLite local.');
 }finally{db?.close();}})().catch(error=>{console.error(error);process.exitCode=1;});

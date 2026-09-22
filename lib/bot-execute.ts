@@ -167,7 +167,7 @@ export async function executeCommand(cmd:BotCommand,resolved:Resolved,rows:Recor
     const acc=rows.find(r=>r.id===resolved.accountId);
     if(!acc)return {ok:false,text:'❌ Essa conta não existe mais. Sincronize e tente de novo.'};
     const r=await callHandler(recordsPost,origin,'/api/records','POST',{kind:'movement',data:{account:resolved.accountId,type:tipoMovLabel[cmd.tipo],amount:toCents(cmd.valor),date:cmd.data||todayISO(),note:cmd.observacao||''}});
-    return r.ok?{ok:true,text:`✅ ${tipoMovLabel[cmd.tipo]} de R$ ${cmd.valor.toFixed(2).replace('.',',')} lançado em ${acc.data.house} · ${acc.data.holder}.`}:{ok:false,text:'❌ '+(r.json.error||'Não foi possível lançar a movimentação.')};
+    return r.ok?{ok:true,text:`✅ ${tipoMovLabel[cmd.tipo]} de R$ ${cmd.valor.toFixed(2).replace('.',',')} lançado em ${acc.data.house} · ${acc.data.holder}.`+(r.json.warning?`\n⚠️ ${r.json.warning}`:'')}:{ok:false,text:'❌ '+(r.json.error||'Não foi possível lançar a movimentação.')};
    }
    case 'criar_banco':{
     const r=await callHandler(recordsPost,origin,'/api/records','POST',{kind:'bank',data:{bank:cmd.banco,holder:cmd.titular,balance:toCents(cmd.saldo),note:cmd.observacao||''}});

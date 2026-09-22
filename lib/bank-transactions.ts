@@ -20,5 +20,8 @@ export function prepareBankOperation(rows:RecordItem[],op:BankOperation){
  // subquery is evaluated once, before the statement changes any row.
  const sql=`UPDATE records SET data=CASE id ${changes.map(()=> 'WHEN ? THEN ?').join(' ')} ELSE data END, revision=revision+1 WHERE id IN (${changes.map(()=>'?').join(',')}) AND COALESCE((SELECT group_concat(token,'|') FROM (SELECT id || ':' || revision AS token FROM records ORDER BY id)),'')=?`;
  const bindings=changes.flatMap(r=>[r.id,JSON.stringify(r.data)]).concat(changes.map(r=>r.id),[recordsSnapshot(rows)]);
- return {sql,bindings,count:changes.length};
+ // `changes` (post-update rows, revision already bumped) lets a caller that embeds this
+ // UPDATE in its own batch reflect the new bank balance(s) in what it hands back to the
+ // client, instead of the stale pre-operation snapshot it read `rows` from.
+ return {sql,bindings,count:changes.length,changes:changes.map(r=>({...r,revision:r.revision+1}))};
 }

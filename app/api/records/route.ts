@@ -4,6 +4,7 @@ import {summary,grantsOf} from '@/lib/banca';
 import {combinationLabel} from '@/lib/markets';
 import {recordsSnapshot,insertRecordSql,updateRecordSql,deleteArbitrageSql,freebetDependents} from '@/lib/record-changes';
 import {bankNameKey} from '@/lib/banks';
+import {prepareBankOperation} from '@/lib/bank-transactions';
 import {backupLog} from '@/lib/backup';
 function summarize(kind:string,data:any):string{
  if(kind==='account')return data.house+' · '+data.holder;
@@ -57,12 +58,45 @@ export async function POST(req:Request){try{
   for(const g of groups.values()){if(new Set(g.map((b:any)=>b.account)).size!==g.length)throw new Error('Na aposta dividida, escolha uma conta diferente para cada parte.');if(new Set(g.map((b:any)=>b.selection)).size!==1)throw new Error('As partes de uma aposta dividida devem ter a mesma seleção.');}
  }
  const id=old?.id||crypto.randomUUID();const next=[...rows.filter((r:any)=>r.id!==id),{id,kind:body.kind,data,revision:1}];for(const r of next.filter((r:any)=>r.kind==="arb")){for(const b of r.data.bets){if(b.capital!=="Freebet")continue;const g=grantsOf(next).find((g:any)=>g.id===b.lot&&g.account===b.account);if(!g)throw new Error("Uma aposta depende desta freebet. Mantenha a conta e o tipo do crédito.");if(r.data.date<g.date||(g.expires&&r.data.date>g.expires))throw new Error("A data da aposta deve estar dentro da validade da freebet.");}}const s=summary(next);if(s.grants.some((g:any)=>g.remaining<0))throw new Error('Valor maior que a freebet disponível');
+ // A new "Saque"/"Depósito" on a betting account keeps the matching-holder bank in sync
+ // automatically: a saque credits that bank, a depósito debits it (mirrors prepareBankOperation
+ // in lib/bank-transactions.ts, which the manual Bancos tab already uses). Only for brand-new
+ // movements (editing one doesn't re-sync — this would need to know and undo the old effect
+ // first) and only when exactly one bank shares the account's holder; 0 or 2+ matches skip the
+ // sync and surface a warning instead of guessing wrong or blocking the movement entry itself.
+ let bankOp:{sql:string;bindings:unknown[];count:number;changes:{id:string;revision:number;[k:string]:unknown}[]}|null=null,bankWarning:string|null=null;
+ if(body.kind==='movement'&&!old&&(data.type==='Saque'||data.type==='Depósito')){
+  const acc=rows.find((r:any)=>r.kind==='account'&&r.id===(data as any).account);
+  if(acc){
+   const banksOfHolder=rows.filter((r:any)=>r.kind==='bank'&&bankNameKey(r.data.holder)===bankNameKey(acc.data.holder));
+   if(banksOfHolder.length===1)bankOp=prepareBankOperation(rows,{type:data.type==='Saque'?'deposit':'withdraw',source:banksOfHolder[0].id,sourceRevision:banksOfHolder[0].revision,amount:(data as any).amount});
+   else bankWarning=banksOfHolder.length===0?`Nenhum banco cadastrado para "${acc.data.holder}" — o saldo do banco não foi atualizado automaticamente.`:`Mais de um banco cadastrado para "${acc.data.holder}" — não deu pra saber qual banco atualizar automaticamente.`;
+  }
+ }
  const snapshot=recordsSnapshot(rows);
- const res=old?await database().prepare(updateRecordSql).bind(JSON.stringify(data),id,body.revision,snapshot).run():await database().prepare(insertRecordSql).bind(id,body.kind,JSON.stringify(data),snapshot).run();
+ const insertStmt=old?database().prepare(updateRecordSql).bind(JSON.stringify(data),id,body.revision,snapshot):database().prepare(insertRecordSql).bind(id,body.kind,JSON.stringify(data),snapshot);
+ let res;
+ if(bankOp){
+  // The bank UPDATE runs second in the same D1 batch (one implicit transaction), so by the time
+  // it executes, the movement row above has already been inserted — its snapshot check has to
+  // expect a table that INCLUDES that new row, not the pre-insert snapshot prepareBankOperation
+  // computed from `rows`. Swap in the post-insert snapshot for just that one binding.
+  const postInsertSnapshot=recordsSnapshot([...rows,{id,revision:1} as any]);
+  const bankBindings=[...bankOp.bindings];bankBindings[bankBindings.length-1]=postInsertSnapshot;
+  const results=await database().batch([insertStmt,database().prepare(bankOp.sql).bind(...bankBindings)]);
+  res=results[0];
+  if(res.meta.changes&&!results[1].meta.changes)bankWarning='O banco vinculado mudou em outro dispositivo bem na hora do lançamento — o saldo não foi atualizado automaticamente. Confira e ajuste manualmente se precisar.';
+ }else{
+  res=await insertStmt.run();
+ }
  if(!res.meta.changes)return Response.json({error:'Os dados mudaram em outro dispositivo. Sincronize e confira o registro antes de salvar novamente.',code:'stale'},{status:409});
  const saved={id,kind:body.kind,data,revision:old?old.revision+1:1};
  await backupLog({kind:body.kind,action:old?'update':'create',id,revision:saved.revision,summary:summarize(body.kind,data),data,columns:backupColumns(body.kind,old?'update':'create',data,rows)});
- return Response.json({id,rows:[saved,...rows.filter((r:any)=>r.id!==id)]},{headers:{'Cache-Control':'no-store'}});
+ // If the bank sync landed, swap in its post-update row too — otherwise the response would hand
+ // back the bank's stale pre-sync balance until the client's next full refetch.
+ const bankSynced=bankOp&&!bankWarning?bankOp.changes:[];
+ const rest=rows.filter((r:any)=>r.id!==id&&!bankSynced.some(b=>b.id===r.id));
+ return Response.json({id,rows:[saved,...bankSynced,...rest],...(bankWarning?{warning:bankWarning}:{})},{headers:{'Cache-Control':'no-store'}});
  }catch(e){console.error(e);return Response.json({error:e instanceof z.ZodError?'Confira os campos obrigatórios e valores.':e instanceof Error?e.message:'Não foi possível salvar.'},{status:400});}}
 
 export async function DELETE(req:Request){try{
