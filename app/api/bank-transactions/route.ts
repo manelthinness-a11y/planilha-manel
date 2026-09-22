@@ -3,12 +3,14 @@ import {database} from '@/lib/store';
 import {prepareBankOperation} from '@/lib/bank-transactions';
 import type {RecordItem} from '@/lib/banca';
 import {backupLog} from '@/lib/backup';
+import {checkAccess,unauthorized} from '@/lib/auth';
 
 const schema=z.object({type:z.enum(['deposit','withdraw','transfer']),source:z.string().min(1),sourceRevision:z.number().int().positive(),destination:z.string().optional(),destinationRevision:z.number().int().positive().optional(),amount:z.number().int().positive().max(10000000000)});
 const brl=(cents:number)=>(cents/100).toFixed(2).replace('.',',');
 const bankLabel=(rows:any[],id:string)=>{const a=rows.find((r:any)=>r.kind==='bank'&&r.id===id);return a?a.data.bank+' · '+a.data.holder:id;};
 const typeLabel:Record<string,string>={deposit:'Depósito',withdraw:'Saque',transfer:'Transferência'};
 export async function POST(req:Request){
+ if(!checkAccess(req))return unauthorized();
  const origin=req.headers.get('origin');
  if(origin&&origin!==new URL(req.url).origin)return Response.json({error:'Origem inválida'},{status:403});
  try{

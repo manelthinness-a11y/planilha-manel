@@ -5,6 +5,7 @@ import {toast} from 'sonner';
 import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription} from '@/components/ui/dialog';
 import {money} from '@/lib/banca';
 import type {BankAccount} from '@/lib/banks';
+import {apiFetch} from '@/lib/api-client';
 type Action='deposit'|'withdraw'|'transfer';
 const labels={deposit:'Depositar',withdraw:'Sacar',transfer:'Transferir entre bancos'};
 export function BankActions({bank,banks,disabled,onUpdated}:{bank:BankAccount;banks:BankAccount[];disabled:boolean;onUpdated:()=>void}){
@@ -25,7 +26,7 @@ export function BankActions({bank,banks,disabled,onUpdated}:{bank:BankAccount;ba
   e.preventDefault();if(sending.current||!valid||!source||!action)return;
   sending.current=true;setBusy(true);setError('');
   try{
-   const r=await fetch('/api/bank-transactions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:action,source:source.id,sourceRevision:source.revision,destination:target?.id,destinationRevision:target?.revision,amount:cents})});
+   const r=await apiFetch('/api/bank-transactions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:action,source:source.id,sourceRevision:source.revision,destination:target?.id,destinationRevision:target?.revision,amount:cents})});
    const data=await r.json();if(!r.ok)throw new Error(data.error||'Não foi possível salvar.');
    setAction(null);toast.success('Operação bancária registrada');onUpdated();
   }catch(e){setError(e instanceof Error?e.message:'Falha de conexão. Feche e sincronize para conferir o saldo antes de repetir.');}

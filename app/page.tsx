@@ -21,6 +21,8 @@ import {splitBet,groupDetails} from '@/lib/split-bet';
 import {marketOptions,selectionOptions,combinationLabel,CombinationLeg} from '@/lib/markets';
 import {VoiceArbitrageInput} from '@/components/voice-arbitrage';
 import type {VoiceArbitrage} from '@/lib/voice-arbitrage';
+import {apiFetch} from '@/lib/api-client';
+import {AccessGate} from '@/components/access-gate';
 const today=()=>new Date().toISOString().slice(0,10);
 const tabs=[['painel','Visão geral',LayoutDashboard],['contas','Contas',Wallet],['arbitragens','Arbitragens',Layers],['alavancagem','Alavancagem 1.3',ArrowUpRight],['odd5','ODD 5',Target],['alavancagem2','Alavancagem 2,0',TrendingUp],['bancos','Bancos',Landmark],['extrato','Movimentações',ArrowLeftRight],['freebets','Freebets',Gift],['extracao','Extração',Filter],['comissoes','Comissões',HandCoins]] as const;
 function Field({label,...p}:any){return <label className="field">{label}<input {...p}/></label>}
@@ -36,12 +38,12 @@ function BetBuilder({legs,onChange}: {legs:CombinationLeg[];onChange:(legs:Combi
 }
 function RegisterFreebet({account,date,onCreated}:any){
  const [expanded,expand]=useState(false),[amount,setAmount]=useState(''),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
- async function register(){const cents=Math.round(Number(amount.replace(',','.'))*100);if(!Number.isFinite(cents)||cents<=0){setMessage('Informe o valor da freebet recebida.');return;}setBusy(true);try{const data={account,type:'Freebet recebida',amount:cents,date,expires:'',note:'Crédito cadastrado durante o registro da aposta'};const r=await fetch('/api/records',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:'movement',data})});const result:any=await r.json();if(!r.ok)throw new Error(result.error);onCreated({id:result.id,kind:'movement',data,revision:1});expand(false);setAmount('');toast.success('Freebet cadastrada e selecionada');}catch(e:any){setMessage(e.message);}finally{setBusy(false);}}
+ async function register(){const cents=Math.round(Number(amount.replace(',','.'))*100);if(!Number.isFinite(cents)||cents<=0){setMessage('Informe o valor da freebet recebida.');return;}setBusy(true);try{const data={account,type:'Freebet recebida',amount:cents,date,expires:'',note:'Crédito cadastrado durante o registro da aposta'};const r=await apiFetch('/api/records',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:'movement',data})});const result:any=await r.json();if(!r.ok)throw new Error(result.error);onCreated({id:result.id,kind:'movement',data,revision:1});expand(false);setAmount('');toast.success('Freebet cadastrada e selecionada');}catch(e:any){setMessage(e.message);}finally{setBusy(false);}}
  return <div className="inline-freebet">{!expanded?<button type="button" className="text-button" disabled={!account} onClick={()=>expand(true)}>Cadastrar freebet já recebida</button>:<><Field label="Valor do crédito recebido (R$)" inputMode="decimal" value={amount} onChange={(e:any)=>setAmount(e.target.value)}/><p className="hint">Conta selecionada · Data: {date}. O crédito será salvo agora, mesmo se você cancelar a arbitragem depois.</p><button type="button" className="secondary" disabled={busy} onClick={register}>{busy?'Cadastrando…':'Cadastrar e usar esta freebet'}</button>{message&&<p role="alert">{message}</p>}</>}</div>;
 }
 const blankPromo=()=>({account:'',expected:0,status:'Aguardando',received:0,receivedDate:'',expires:'',condition:'',lossPct:null});
 const blankBet=()=>({id:crypto.randomUUID(),account:'',selection:'',capital:'Real',lot:'',previousLoss:0,stake:0,odd:2,status:'Pendente',returned:0,reissued:false});
-export default function Home(){
+function Dashboard(){
  const [rows,setRows]=useState<RecordItem[]>([]),[loading,setLoading]=useState(true),[error,setError]=useState(''),[tab,setTab]=useState('painel'),[modal,setModal]=useState(''),[settling,setSettling]=useState(false),[draft,setDraft]=useState<any>({}),[saving,setSaving]=useState(false),[filter,setFilter]=useState('all'),[selectedPerson,setSelectedPerson]=useState(''),[selectedHouse,setSelectedHouse]=useState(''),[menuOpen,setMenuOpen]=useState(false);
  const [selectedBankPerson,setSelectedBankPerson]=useState(''),[selectedBank,setSelectedBank]=useState('');
  const banks=bankSummary(rows);
@@ -53,7 +55,7 @@ export default function Home(){
  const [lastSynced,setLastSynced]=useState('');
  const s=summary(rows);const names=Object.fromEntries(s.accounts.map(a=>[a.id,a.house+' · '+a.holder]));
  const cs=commissionSummary(rows);
- async function load(){const sequence=++refreshSequence.current;setLoading(true);try{const r=await fetch('/api/records',{cache:'no-store'});const d:any=await r.json();if(!r.ok)throw new Error(d.error||'Não foi possível sincronizar.');if(!Array.isArray(d.rows))throw new Error('Resposta inválida ao sincronizar.');if(sequence!==refreshSequence.current)return null;setRows(d.rows);setError('');setLastSynced(new Date().toLocaleTimeString('pt-BR'));return d.rows as RecordItem[];}catch(e:any){if(sequence===refreshSequence.current)setError(e.message);return null;}finally{if(sequence===refreshSequence.current)setLoading(false);}}
+ async function load(){const sequence=++refreshSequence.current;setLoading(true);try{const r=await apiFetch('/api/records',{cache:'no-store'});const d:any=await r.json();if(!r.ok)throw new Error(d.error||'Não foi possível sincronizar.');if(!Array.isArray(d.rows))throw new Error('Resposta inválida ao sincronizar.');if(sequence!==refreshSequence.current)return null;setRows(d.rows);setError('');setLastSynced(new Date().toLocaleTimeString('pt-BR'));return d.rows as RecordItem[];}catch(e:any){if(sequence===refreshSequence.current)setError(e.message);return null;}finally{if(sequence===refreshSequence.current)setLoading(false);}}
  useEffect(()=>{if(tab==='painel'||tab==='bancos')void load();},[tab]);
  useEffect(()=>{const c=(document as any).modelContext;if(!c?.registerTool)return;const a=new AbortController();Promise.resolve(c.registerTool({name:'read_banca',description:'Consultar saldos e arbitragens registrados.',inputSchema:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:true},execute:async()=>{const updated=await load();if(!updated)throw new Error('Dados indisponíveis');return summary(updated);}},{signal:a.signal})).catch(console.error);return()=>a.abort();},[]);
  function open(kind:string,r?:any){if(writeInFlight.current)return;setSettling(false);setModal(kind);setDraft(r?{...structuredClone(r.data),id:r.id,revision:r.revision}:kind==='bank'?{bank:'',holder:banks.people.find(p=>p.key===selectedBankPerson)?.name||'',balance:0,note:''}:kind==='account'?{house:'',holder:'',initial:0,note:''}:kind==='movement'?{account:'',type:'Depósito',amount:0,date:today(),expires:'',note:''}:kind==='commission_person'?{name:'',note:''}:{event:'',market:'',date:today(),note:'',bets:[blankBet(),blankBet()],promo:tab==='freebets'?blankPromo():null});}
@@ -65,7 +67,7 @@ export default function Home(){
  function applyCommittedRows(committed:RecordItem[]){refreshSequence.current++;setRows(committed);setError('');setLoading(false);setLastSynced(new Date().toLocaleTimeString('pt-BR'));}
  async function save(e:any){
   e.preventDefault();if(writeInFlight.current)return;writeInFlight.current=true;setSaving(true);
-  try{const r=await fetch('/api/records',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:modal,data:draft,id:draft.id,revision:draft.revision})});const d:any=await r.json();
+  try{const r=await apiFetch('/api/records',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:modal,data:draft,id:draft.id,revision:draft.revision})});const d:any=await r.json();
    if(!r.ok){if(d.code==='stale')await load();throw new Error(d.error);}
    if(Array.isArray(d.rows))applyCommittedRows(d.rows);
    if(modal==='bank'){const saved=d.rows?.find((record:RecordItem)=>record.id===d.id);if(saved){setSelectedBankPerson(bankNameKey(saved.data.holder));setSelectedBank(saved.id);}}
@@ -74,7 +76,7 @@ export default function Home(){
  }
  async function removeArbitrage(){
   if(!deleteTarget||writeInFlight.current)return;writeInFlight.current=true;setDeleting(true);setDeleteError('');
-  try{const r=await fetch('/api/records',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:deleteTarget.id,revision:deleteTarget.revision})});const d:any=await r.json();
+  try{const r=await apiFetch('/api/records',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:deleteTarget.id,revision:deleteTarget.revision})});const d:any=await r.json();
    if(!r.ok){if(d.code==='stale'){setDeleteTarget(null);await load();toast.error(d.error);}else setDeleteError(d.error||'Não foi possível excluir.');return;}
    if(Array.isArray(d.rows))applyCommittedRows(d.rows);
    setDeleteTarget(null);const updated=await load();toast.success(deleteTarget.kind==='account'?(updated?'Conta excluída. Saldos atualizados.':'Conta excluída. Sincronize para consultar novas alterações.'):deleteTarget.kind==='commission_person'?(updated?'Pessoa excluída de Comissões.':'Pessoa excluída. Sincronize para consultar novas alterações.'):(updated?'Arbitragem excluída. Saldos e resultados atualizados.':'Arbitragem excluída e totais recalculados. Não foi possível consultar novas alterações; tente sincronizar.'));
@@ -84,7 +86,7 @@ export default function Home(){
  async function removePerson(){
   if(!personDeleteTarget||writeInFlight.current)return;writeInFlight.current=true;setPersonDeleting(true);setPersonDeleteError('');
   const targets=personDeleteTarget.accounts.filter(a=>!a.linked);let done=0,failed=0;
-  for(const a of targets){try{const r=await fetch('/api/records',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:a.id,revision:a.revision})});const d:any=await r.json();if(!r.ok){failed++;continue;}if(Array.isArray(d.rows))applyCommittedRows(d.rows);done++;}catch{failed++;}}
+  for(const a of targets){try{const r=await apiFetch('/api/records',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:a.id,revision:a.revision})});const d:any=await r.json();if(!r.ok){failed++;continue;}if(Array.isArray(d.rows))applyCommittedRows(d.rows);done++;}catch{failed++;}}
   const blocked=personDeleteTarget.accounts.length-targets.length;const name=personDeleteTarget.name;
   setPersonDeleteTarget(null);writeInFlight.current=false;setPersonDeleting(false);
   const updated=await load();
@@ -169,3 +171,4 @@ export default function Home(){
  {modal==='arb'&&settledArb?.previousLoss>0&&<section className="settlement-preview" aria-live="polite"><h3>Resultado da extração</h3><p>Perdas anteriores: <b>{money(settledArb.previousLoss)}</b></p>{settledArb.betsDone?<><p>Resultado desta arbitragem: <b>{money(settledArb.result)}</b></p><p>Resultado após perdas anteriores: <b className={settledArb.extractionResult<0?'negative':'positive'}>{money(settledArb.extractionResult)}</b></p></>:<p>O resultado final será calculado ao resolver todas as apostas.</p>}<p className="hint">As perdas anteriores desta extração também entram no Resultado realizado da Visão geral após liquidar as apostas. Os saldos das contas seguem os movimentos registrados.</p></section>}
  <Field label="Observação (opcional)" value={draft.note||''} onChange={(e:any)=>set('note',e.target.value)}/><div className="form-actions"><button type="button" className="secondary" disabled={saving} onClick={()=>setModal('')}>Cancelar</button>{settling?<>{!settledArb?.done&&<button type="submit" className="secondary" disabled={saving}>Salvar resultados parciais</button>}<button type="submit" className="primary" disabled={saving||!settledArb?.done}>{saving?'Salvando…':'Confirmar finalização'}</button></>:<button type="submit" className="primary" disabled={saving}>{saving?'Salvando…':<><Check size={17}/>Salvar registro</>}</button>}</div></form></DialogContent></Dialog></Tabs>;
 }
+export default function Home(){return <AccessGate><Dashboard/></AccessGate>;}

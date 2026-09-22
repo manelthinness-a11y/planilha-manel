@@ -4,6 +4,7 @@ import type {RecordItem} from '@/lib/banca';
 import {recordsSnapshot,insertRecordSql,updateRecordSql,deleteOdd5Sql} from '@/lib/record-changes';
 import {settleOdd5,odd5DefaultStakeId} from '@/lib/odd5';
 import {backupLog} from '@/lib/backup';
+import {checkAccess,unauthorized} from '@/lib/auth';
 const brl=(cents:number)=>(cents/100).toFixed(2).replace('.',',');
 const entryColumns=(acao:string,data:any):[string,string|number][]=>[['Ação',acao],['Evento',data.event],['Mercado(s)',(data.markets||[]).join(' | ')],['Odd',data.odd],['Conta',data.account],['Casa',data.house],['Stake (R$)',brl(data.stake)],['Resultado',data.result],['Prêmio (R$)',brl(data.prize)]];
 const str=z.string().trim().min(1).max(200);
@@ -14,7 +15,7 @@ const input=z.discriminatedUnion('action',[
  z.object({action:z.literal('delete'),id:z.string().min(1),revision:z.number().int().positive()}),
  z.object({action:z.literal('set-default-stake'),value:z.number().int().min(100).max(1000000)})
 ]);
-export async function POST(req:Request){try{
+export async function POST(req:Request){if(!checkAccess(req))return unauthorized();try{
  const origin=req.headers.get('origin');if(origin&&origin!==new URL(req.url).origin)return Response.json({error:'Origem inválida'},{status:403});
  const body=input.parse(await req.json());
  const all=await database().prepare('SELECT * FROM records').all();

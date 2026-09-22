@@ -16,7 +16,7 @@ function source(file){
  if(modules[file])return modules[file].exports;
  const module={exports:{}};modules[file]=module;
  const code=ts.transpileModule(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
- new Function('require','module','exports',code)(name=>name==='@/lib/store'?{database:()=>adapter}:name==='cloudflare:workers'?{env:{}}:name==='vinext/shims/request-context'?{getRequestExecutionContext:()=>null}:name.startsWith('@/')?source(name.slice(2)+'.ts'):name.startsWith('.')?source(path.join(path.dirname(file),name)+'.ts'):require(name),module,module.exports);
+ new Function('require','module','exports',code)(name=>name==='@/lib/store'?{database:()=>adapter}:name==='cloudflare:workers'?{env:{ACCESS_PASSWORD:'teste-senha'}}:name==='vinext/shims/request-context'?{getRequestExecutionContext:()=>null}:name.startsWith('@/')?source(name.slice(2)+'.ts'):name.startsWith('.')?source(path.join(path.dirname(file),name)+'.ts'):require(name),module,module.exports);
  return module.exports;
 }
 const api=source('app/api/records/route.ts');
@@ -31,8 +31,8 @@ const movement=(id,account,type,amount)=>row(id,'movement',{account,type,amount,
 function insert(r){db.prepare('INSERT INTO records VALUES (?,?,?,?)').run(r.id,r.kind,JSON.stringify(r.data),r.revision);}
 function reset(rows){db?.close();db=new DatabaseSync(':memory:');db.exec('CREATE TABLE records (id TEXT PRIMARY KEY,kind TEXT NOT NULL,data TEXT NOT NULL,revision INTEGER NOT NULL DEFAULT 1)');rows.forEach(insert);beforeWrite=null;}
 function rows(){return db.prepare('SELECT * FROM records').all().map(r=>({...r,data:JSON.parse(r.data)}));}
-async function call(method,body,origin='https://manel.test'){
- const response=await api[method](new Request('https://manel.test/api/records',{method,headers:{'Content-Type':'application/json',origin},body:JSON.stringify(body)}));
+async function call(method,body,origin='https://manel.test',password='teste-senha'){
+ const response=await api[method](new Request('https://manel.test/api/records',{method,headers:{'Content-Type':'application/json',origin,'x-access-password':password},body:JSON.stringify(body)}));
  return {status:response.status,data:await response.json()};
 }
 async function remove(id,revision=1){return call('DELETE',{id,revision});}
@@ -116,7 +116,7 @@ async function edit(r){return call('POST',{...r});}
  assert.equal((await edit(revisedBank)).status,409);
  revisedBank.revision=2;revisedBank.data.bank='Inter';revisedBank.data.holder='Alex';revisedBank.data.balance=-1000;
  result=await edit(revisedBank);assert.equal(result.status,200);
- const persisted=await (await api.GET()).json();bankTotals=bankSummary(persisted.rows);
+ const persisted=await (await api.GET(new Request('https://manel.test/api/records',{headers:{'x-access-password':'teste-senha'}}))).json();bankTotals=bankSummary(persisted.rows);
  assert.equal(bankTotals.people.find(p=>p.key==='manel').total,25050);
  assert.equal(bankTotals.people.find(p=>p.key==='alex').total,69000);
  assert.equal(bankTotals.people.find(p=>p.key==='alex').banks.length,2);
@@ -158,6 +158,13 @@ async function edit(r){return call('POST',{...r});}
  assert.equal(result.status,200);assert.equal(result.data.warning,undefined);
  assert.equal(rows().find(r=>r.id==='bk').data.balance,50000);
  console.log('Sincronização automática de banco (Saque/Depósito): crédito, débito, saldo insuficiente, banco ausente/ambíguo e edição sem re-sincronização verificados.');
+
+ // The API rejects requests without the correct access password, on every verb.
+ reset([a,b]);
+ assert.equal((await api.GET(new Request('https://manel.test/api/records'))).status,401);
+ assert.equal((await api.GET(new Request('https://manel.test/api/records',{headers:{'x-access-password':'errada'}}))).status,401);
+ assert.equal((await call('POST',{kind:'account',data:{house:'x',holder:'y',initial:0,note:''}},'https://manel.test','')).status,401);
+ console.log('Acesso: GET/POST sem a senha correta são recusados com 401.');
 
  console.log('Bancos: cadastro por pessoa, saldos individuais, totais, duplicidade, edição e persistência verificados.');
  console.log('Arbitragens: edição, exclusão, recálculo por conta, perda anterior, freebets, revisões e concorrência verificados com SQLite local.');

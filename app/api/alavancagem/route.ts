@@ -4,6 +4,7 @@ import type {RecordItem} from '@/lib/banca';
 import {recordsSnapshot,insertRecordSql,updateRecordSql,deleteAlavancagemSql} from '@/lib/record-changes';
 import {nextLeverage,settleLeverage,groupDefaultStake,defaultStakeSettingId,mirrorGroupOf,TRACKS,type Group} from '@/lib/alavancagem';
 import {backupLog} from '@/lib/backup';
+import {checkAccess,unauthorized} from '@/lib/auth';
 const brl=(cents:number)=>(cents/100).toFixed(2).replace('.',',');
 const entryColumns=(acao:string,data:any):[string,string|number][]=>[['Ação',acao],['Sequência',data.sequence],['Ciclo',data.cycle],['Evento',data.event],['Mercado',data.market],['Data',data.date],['Odd',data.odd],['Conta',data.account],['Casa',data.house],['Stake (R$)',brl(data.stake)],['Resultado',data.result],['Prêmio (R$)',brl(data.prize)]];
 const groupEnum=z.enum(['alavancagem','individual','alavancagem2','individual2']) as z.ZodType<Group>;
@@ -13,7 +14,7 @@ const input=z.discriminatedUnion('action',[
  z.object({action:z.literal('delete'),group:groupEnum.default('alavancagem'),id:z.string().min(1),revision:z.number().int().positive()}),
  z.object({action:z.literal('set-default-stake'),group:groupEnum.default('alavancagem'),value:z.number().int().min(100).max(1000000)})
 ]);
-export async function POST(req:Request){try{
+export async function POST(req:Request){if(!checkAccess(req))return unauthorized();try{
  const origin=req.headers.get('origin');if(origin&&origin!==new URL(req.url).origin)return Response.json({error:'Origem inválida'},{status:403});
  const body=input.parse(await req.json());
  const all=await database().prepare('SELECT * FROM records').all();

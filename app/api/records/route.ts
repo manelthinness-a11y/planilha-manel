@@ -6,6 +6,7 @@ import {recordsSnapshot,insertRecordSql,updateRecordSql,deleteArbitrageSql,freeb
 import {bankNameKey} from '@/lib/banks';
 import {prepareBankOperation} from '@/lib/bank-transactions';
 import {backupLog} from '@/lib/backup';
+import {checkAccess,unauthorized} from '@/lib/auth';
 function summarize(kind:string,data:any):string{
  if(kind==='account')return data.house+' · '+data.holder;
  if(kind==='movement')return data.type+' · R$ '+(data.amount/100).toFixed(2).replace('.',',');
@@ -36,8 +37,8 @@ const bankSchema=z.object({bank:str.transform(v=>v.replace(/\s+/g,' ')),holder:s
 const promo=z.object({account:str,expected:cents.positive(),status:z.enum(['Aguardando','Recebida','Não recebida']),received:cents.default(0),receivedDate:z.union([date,z.literal('')]).default(''),expires:z.union([date,z.literal('')]).default(''),condition:z.string().max(1000).default(''),lossPct:z.number().min(0).max(100).nullable().default(null)}).superRefine((p,c)=>{if(p.status==='Recebida'&&(!p.received||!p.receivedDate))c.addIssue({code:z.ZodIssueCode.custom,message:'Informe o valor e a data de recebimento'});if(p.status==='Recebida'&&p.expires&&p.expires<p.receivedDate)c.addIssue({code:z.ZodIssueCode.custom,message:'Vencimento anterior ao recebimento'});});
 const schemas={bank:bankSchema,account:z.object({house:str,holder:str,initial:cents,note:z.string().max(1000).default('')}),movement:z.object({account:str,type:z.enum(['Depósito','Saque','Ajuste positivo','Ajuste negativo','Freebet recebida']),amount:cents.positive(),date:str,expires:z.string().optional(),note:z.string().max(1000).default('')}),arb:z.object({event:str,market:str,date:str,note:z.string().max(1000).default(''),bets:z.array(bet).min(2).max(60),promo:promo.nullable().optional()}),commission_person:z.object({name:str,note:z.string().max(1000).default('')}),commission_entry:z.object({personId:str,type:z.enum(['Comissão','Débito','Pagamento']),amount:cents.positive(),date:str,note:z.string().max(1000).default('')})};
 async function all(){const r=await database().prepare('SELECT * FROM records ORDER BY rowid DESC').all();return r.results.map((r:any)=>({...r,data:JSON.parse(r.data)}));}
-export async function GET(){try{return Response.json({rows:await all()},{headers:{'Cache-Control':'no-store, max-age=0'}});}catch(e){console.error(e);return Response.json({error:'Não foi possível carregar os dados. Tente novamente.'},{status:503});}}
-export async function POST(req:Request){try{
+export async function GET(req:Request){if(!checkAccess(req))return unauthorized();try{return Response.json({rows:await all()},{headers:{'Cache-Control':'no-store, max-age=0'}});}catch(e){console.error(e);return Response.json({error:'Não foi possível carregar os dados. Tente novamente.'},{status:503});}}
+export async function POST(req:Request){if(!checkAccess(req))return unauthorized();try{
  const origin=req.headers.get('origin');if(origin&&origin!==new URL(req.url).origin)return Response.json({error:'Origem inválida'},{status:403});
  const body=z.object({kind:z.enum(["account","movement","arb","bank","commission_person","commission_entry"]),data:z.unknown(),id:z.string().optional(),revision:z.number().int().optional()}).parse(await req.json());if(!Object.hasOwn(schemas,body.kind))throw new Error('Registro inválido');
  const data:any=schemas[body.kind as keyof typeof schemas].parse(body.data);const rows=await all();const old=body.id?rows.find((r:any)=>r.id===body.id):null;
@@ -99,7 +100,7 @@ export async function POST(req:Request){try{
  return Response.json({id,rows:[saved,...bankSynced,...rest],...(bankWarning?{warning:bankWarning}:{})},{headers:{'Cache-Control':'no-store'}});
  }catch(e){console.error(e);return Response.json({error:e instanceof z.ZodError?'Confira os campos obrigatórios e valores.':e instanceof Error?e.message:'Não foi possível salvar.'},{status:400});}}
 
-export async function DELETE(req:Request){try{
+export async function DELETE(req:Request){if(!checkAccess(req))return unauthorized();try{
  const origin=req.headers.get('origin');if(origin&&origin!==new URL(req.url).origin)return Response.json({error:'Origem inválida'},{status:403});
  const body=z.object({id:z.string().min(1),revision:z.number().int().positive()}).parse(await req.json());
  const rows=await all();const old=rows.find((r:any)=>r.id===body.id);

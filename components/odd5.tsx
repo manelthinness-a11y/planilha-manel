@@ -5,6 +5,7 @@ import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription} from '@
 import {money,RecordItem,summary} from '@/lib/banca';
 import {odd5Entries,odd5Balance,odd5Counts,odd5DefaultStake,odd5OddDefault} from '@/lib/odd5';
 import {PersonAccountPicker} from '@/components/person-account-picker';
+import {apiFetch} from '@/lib/api-client';
 type PanelProps={rows:RecordItem[];disabled:boolean;onUpdated:()=>Promise<unknown>};
 const blankMarkets=()=>[''];
 export function Odd5Panel({rows,disabled,onUpdated}:PanelProps){
@@ -21,7 +22,7 @@ export function Odd5Panel({rows,disabled,onUpdated}:PanelProps){
  const [settingsOpen,setSettingsOpen]=useState(false),[defaultStakeInput,setDefaultStakeInput]=useState('');
  const lock=useRef(false);
  async function send(body:unknown){if(lock.current)return;lock.current=true;setBusy(true);setError('');try{
-  const response=await fetch('/api/odd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const response=await apiFetch('/api/odd5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const data:any=await response.json();if(!response.ok)throw new Error(data.error||'Não foi possível salvar.');
   setOpen(false);setConfirm(null);setDeleteTarget(null);setSettingsOpen(false);setEditing(null);await onUpdated();
  }catch(e){setError(e instanceof Error?e.message:'Falha na conexão. Sincronize antes de tentar novamente.');}finally{lock.current=false;setBusy(false);}}

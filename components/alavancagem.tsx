@@ -5,6 +5,7 @@ import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription} from '@
 import {money,RecordItem,summary} from '@/lib/banca';
 import {leverageEntries,nextLeverage,resetStakeFor,leverageNet,type Group,type Track} from '@/lib/alavancagem';
 import {PersonAccountPicker} from '@/components/person-account-picker';
+import {apiFetch} from '@/lib/api-client';
 type PanelProps={rows:RecordItem[];disabled:boolean;onUpdated:()=>Promise<unknown>};
 export function AlavancagemPanel(props:PanelProps&{track:Track}){
  const {track}=props;
@@ -27,7 +28,7 @@ function LeverageRegister({rows,disabled,onUpdated,group,track}:PanelProps&{grou
  const [settingsOpen,setSettingsOpen]=useState(false),[stakeInput,setStakeInput]=useState('');
  const lock=useRef(false);
  async function send(body:unknown){if(lock.current)return;lock.current=true;setBusy(true);setError('');try{
-  const response=await fetch('/api/alavancagem',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const response=await apiFetch('/api/alavancagem',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const data=await response.json();if(!response.ok)throw new Error(data.error||'Não foi possível salvar.');
   setOpen(false);setConfirm(null);setDeleteTarget(null);setSettingsOpen(false);await onUpdated();
  }catch(e){setError(e instanceof Error?e.message:'Falha na conexão. Sincronize antes de tentar novamente.');}finally{lock.current=false;setBusy(false);}}
