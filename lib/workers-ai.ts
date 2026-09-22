@@ -14,11 +14,17 @@ async function run(env:WorkersAiEnv,model:string,input:unknown):Promise<any>{
  return json.result;
 }
 
-/** Transcribes an audio clip (any format Telegram sends — ogg/opus voice notes, mp3/m4a audio) to Portuguese text. */
+/** Transcribes an audio clip (any format Telegram sends — ogg/opus voice notes, mp3/m4a audio) to text.
+ * Whisper's REST input schema wants the audio as a raw binary body, not wrapped in JSON like the other
+ * models here (a JSON array of byte values is rejected: "Type mismatch of '/audio', 'string' not in
+ * 'array','binary'") — so this bypasses run() and posts the bytes directly. */
 export async function transcribeAudio(env:WorkersAiEnv,bytes:ArrayBuffer):Promise<string>{
- const audio=Array.from(new Uint8Array(bytes));
- const result=await run(env,'@cf/openai/whisper-large-v3-turbo',{audio,language:'pt'});
- return String(result?.text||'').trim();
+ if(!env.CF_ACCOUNT_ID||!env.CF_AI_TOKEN)throw new Error('IA não configurada (faltam CF_ACCOUNT_ID/CF_AI_TOKEN)');
+ const url=`https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/ai/run/@cf/openai/whisper-large-v3-turbo`;
+ const res=await fetch(url,{method:'POST',headers:{authorization:`Bearer ${env.CF_AI_TOKEN}`,'content-type':'application/octet-stream'},body:bytes});
+ const json:any=await res.json().catch(()=>null);
+ if(!json?.success)throw new Error('Falha na IA (whisper): '+(json?.errors?.[0]?.message||res.status));
+ return String(json.result?.text||'').trim();
 }
 
 /** Asks an instruct model to turn free-form Portuguese text into the JSON command described by systemPrompt. Returns the raw model output — the caller is responsible for tolerant JSON extraction, since not every model/version reliably obeys response_format. */
