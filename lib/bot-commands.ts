@@ -74,6 +74,10 @@ export function resolveOdd5(rows:RecordItem[],query:string,onlyPending:boolean){
  const items=rows.filter(r=>r.kind==='odd5'&&(!onlyPending||r.data.result==='Pendente'));
  return bestMatch(query,items,r=>[r.data.event]);
 }
+export function resolveCamilo(rows:RecordItem[],query:string,onlyPending:boolean){
+ const items=rows.filter(r=>r.kind==='camilo'&&(!onlyPending||r.data.result==='Pendente'));
+ return bestMatch(query,items,r=>[r.data.event]);
+}
 
 export const leverageGroupOf=(grupo:'1,3'|'2,0'):Group=>grupo==='1,3'?'alavancagem':'alavancagem2';
 export const leverageGroupLabel=(g:Group)=>TRACKS.find(t=>t.mainGroup===g)?.label||g;
@@ -104,6 +108,9 @@ export const botCommandSchema=z.discriminatedUnion('acao',[
  z.object({acao:z.literal('odd5_criar'),evento:txt(),mercados:z.array(txt(120)).min(1).max(10),odd:z.number().min(1).max(1000),valor:reais,conta:txt()}),
  z.object({acao:z.literal('odd5_liquidar'),evento:txt(),resultado:z.enum(['green','red'])}),
  z.object({acao:z.literal('odd5_excluir'),evento:txt()}),
+ z.object({acao:z.literal('camilo_criar'),evento:txt(),mercados:z.array(txt(120)).min(1).max(10),odd:z.number().min(1).max(1000),valor:reais,conta:txt(),data:dateStr}),
+ z.object({acao:z.literal('camilo_liquidar'),evento:txt(),resultado:z.enum(['green','red'])}),
+ z.object({acao:z.literal('camilo_excluir'),evento:txt()}),
  z.object({acao:z.literal('nao_entendi'),motivo:z.string().max(300).optional()}),
 ]);
 export type BotCommand=z.infer<typeof botCommandSchema>;
@@ -159,12 +166,16 @@ Escolha exatamente UMA "acao" dentre estas e preencha os campos daquele formato 
 {"acao":"odd5_criar","evento":string,"mercados":[string],"odd":number,"valor":number,"conta":string}
 {"acao":"odd5_liquidar","evento":string,"resultado":"green"|"red"}
 {"acao":"odd5_excluir","evento":string}
+{"acao":"camilo_criar","evento":string,"mercados":[string],"odd":number,"valor":number,"conta":string,"data":string?}  (aba "Camilo", dentro do grupo Alavancagem no menu — é uma aba própria, diferente da "alavancagem_criar")
+{"acao":"camilo_liquidar","evento":string,"resultado":"green"|"red"}
+{"acao":"camilo_excluir","evento":string}
 {"acao":"nao_entendi","motivo":string?}  (use quando o comando não corresponder a nenhuma ação acima, ou faltar alguma informação essencial)
 
 Regras importantes:
 - Nunca invente contas, bancos ou pessoas que não estejam nas listas acima — apenas repita o nome mais parecido possível do que a pessoa falou, mesmo que a grafia não seja exata (a resolução final é feita por outro sistema).
 - Exemplo: se a pessoa falar "Saque 50 reais, Manel, bolsa de apostas", o campo "conta" deve ser "bolsa de apostas" (ou "bolsa de apostas Manel") — NÃO "Manel" sozinho, porque "Manel" é titular de dezenas de contas diferentes e não identifica qual delas é a certa.
 - Se o comando pedir para "registrar", "cadastrar", "lançar", "entrou", "criar" algo novo, use as ações de criação. Se pedir para "bateu", "não bateu", "ganhou", "perdeu", "finalizar", "liquidar" algo que já existe, use as ações de liquidação.
+- Se o usuário mencionar "Camilo" explicitamente, use sempre uma das ações camilo_* — NUNCA alavancagem_criar/liquidar/excluir. "Camilo" é uma aba própria (grupo "1,3" e "2,0" são só da Alavancagem normal, não têm relação com Camilo).
 - Nunca responda com texto fora do JSON. Nunca use markdown.`;
 }
 

@@ -7,13 +7,14 @@ import {env} from 'cloudflare:workers';
 import type {RecordItem} from './banca';
 import {
  type BotCommand,toCents,todayISO,resolveAccount,resolveBank,resolvePerson,
- resolvePendingArb,resolveArbByEvent,resolveOdd5,leverageGroupOf,
+ resolvePendingArb,resolveArbByEvent,resolveOdd5,resolveCamilo,leverageGroupOf,
  tipoMovLabel,tipoComissaoLabel,statusApostaLabel,resultadoLabel,
 } from './bot-commands';
 import {leverageEntries,nextLeverage} from './alavancagem';
 import {POST as recordsPost,DELETE as recordsDelete} from '@/app/api/records/route';
 import {POST as alavancagemPost} from '@/app/api/alavancagem/route';
 import {POST as odd5Post} from '@/app/api/odd5/route';
+import {POST as camiloPost} from '@/app/api/camilo/route';
 import {POST as bankTxPost} from '@/app/api/bank-transactions/route';
 
 export type Resolved=Record<string,string>;
@@ -142,6 +143,24 @@ export function resolveCommand(cmd:BotCommand,rows:RecordItem[]):ResolveResult{
    const entry=resolveOdd5(rows,cmd.evento,false);
    if(!entry)return {ok:false,error:`Não encontrei nenhum ODD5 parecido com "${cmd.evento}".`};
    return {ok:true,resolved:{odd5Id:entry.id},description:`⚠️ Excluir o ODD5 "${entry.data.event}"`};
+  }
+
+  case 'camilo_criar':{
+   const acc=resolveAccount(rows,cmd.conta);
+   if(!acc)return {ok:false,error:`Não encontrei nenhuma conta parecida com "${cmd.conta}", ou o nome bate com mais de uma conta ao mesmo tempo. Diga o nome da casa junto com o titular (ex: "Pagolbet do Manel").`};
+   return {ok:true,resolved:{accountId:acc.id},description:`Criar entrada na Camilo "${cmd.evento}" — ${cmd.mercados.join(' | ')} — odd ${cmd.odd} — stake R$ ${cmd.valor.toFixed(2).replace('.',',')} — conta ${acc.data.house} · ${acc.data.holder}`};
+  }
+
+  case 'camilo_liquidar':{
+   const entry=resolveCamilo(rows,cmd.evento,true);
+   if(!entry)return {ok:false,error:`Não encontrei nenhuma entrada da Camilo pendente parecida com "${cmd.evento}".`};
+   return {ok:true,resolved:{camiloId:entry.id},description:`Liquidar Camilo "${entry.data.event}" como ${resultadoLabel[cmd.resultado]}`};
+  }
+
+  case 'camilo_excluir':{
+   const entry=resolveCamilo(rows,cmd.evento,false);
+   if(!entry)return {ok:false,error:`Não encontrei nenhuma entrada da Camilo parecida com "${cmd.evento}".`};
+   return {ok:true,resolved:{camiloId:entry.id},description:`⚠️ Excluir a entrada da Camilo "${entry.data.event}"`};
   }
 
   case 'nao_entendi':
@@ -281,6 +300,24 @@ export async function executeCommand(cmd:BotCommand,resolved:Resolved,rows:Recor
     if(!entry)return {ok:false,text:'❌ Esse ODD5 não existe mais.'};
     const r=await callHandler(odd5Post,origin,'/api/odd5','POST',{action:'delete',id:entry.id,revision:entry.revision});
     return r.ok?{ok:true,text:`✅ ODD5 "${entry.data.event}" excluído.`}:{ok:false,text:'❌ '+(r.json.error||'Não foi possível excluir.')};
+   }
+   case 'camilo_criar':{
+    const acc=rows.find(r=>r.id===resolved.accountId);
+    if(!acc)return {ok:false,text:'❌ Essa conta não existe mais. Sincronize e tente de novo.'};
+    const r=await callHandler(camiloPost,origin,'/api/camilo','POST',{action:'create',event:cmd.evento,markets:cmd.mercados,odd:cmd.odd,stake:toCents(cmd.valor),accountId:acc.id,date:cmd.data||todayISO()});
+    return r.ok?{ok:true,text:`✅ Entrada da Camilo "${cmd.evento}" criada.`}:{ok:false,text:'❌ '+(r.json.error||'Não foi possível criar.')};
+   }
+   case 'camilo_liquidar':{
+    const entry=rows.find(r=>r.id===resolved.camiloId);
+    if(!entry)return {ok:false,text:'❌ Essa entrada da Camilo não existe mais.'};
+    const r=await callHandler(camiloPost,origin,'/api/camilo','POST',{action:'settle',id:entry.id,revision:entry.revision,result:resultadoLabel[cmd.resultado]});
+    return r.ok?{ok:true,text:`✅ Camilo "${entry.data.event}" liquidada como ${resultadoLabel[cmd.resultado]}.`}:{ok:false,text:'❌ '+(r.json.error||'Não foi possível liquidar.')};
+   }
+   case 'camilo_excluir':{
+    const entry=rows.find(r=>r.id===resolved.camiloId);
+    if(!entry)return {ok:false,text:'❌ Essa entrada da Camilo não existe mais.'};
+    const r=await callHandler(camiloPost,origin,'/api/camilo','POST',{action:'delete',id:entry.id,revision:entry.revision});
+    return r.ok?{ok:true,text:`✅ Entrada da Camilo "${entry.data.event}" excluída.`}:{ok:false,text:'❌ '+(r.json.error||'Não foi possível excluir.')};
    }
    case 'nao_entendi':
     return {ok:false,text:'❌ Não entendi o comando.'};
