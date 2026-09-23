@@ -1,5 +1,5 @@
 "use client";
-import {useRef,useState} from 'react';
+import {useEffect,useRef,useState} from 'react';
 import {Plus,Trash2,Settings} from 'lucide-react';
 import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription} from '@/components/ui/dialog';
 import {money,RecordItem,summary} from '@/lib/banca';
@@ -12,6 +12,19 @@ export function AlavancagemPanel(props:PanelProps&{track:Track}){
  const {track}=props;
  const [group,setGroup]=useState<Group>(track.mainGroup);
  const groups=[track.mainGroup,track.individualGroup];
+ const groupStorageKey='planilha-manel:alavancagem-group:'+track.key;
+ // Guarda qual grupo (principal/individual) estava selecionado, pra um F5
+ // (recarregar a página) não voltar sempre pro grupo principal.
+ useEffect(()=>{
+  try{
+   const saved=sessionStorage.getItem(groupStorageKey);
+   if(saved&&groups.includes(saved as Group))setGroup(saved as Group);
+  }catch{}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ },[]);
+ useEffect(()=>{
+  try{sessionStorage.setItem(groupStorageKey,group);}catch{}
+ },[group,groupStorageKey]);
  return <div>
   <div role="tablist" aria-label={'Registros de '+track.label} style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:20}}>
    {groups.map(value=><button type="button" role="tab" id={'tab-'+value} aria-controls={'panel-'+value} aria-selected={group===value} key={value} className={group===value?'primary':'secondary'} onClick={()=>setGroup(value)}>{value===track.mainGroup?track.label:'Individual'}</button>)}
