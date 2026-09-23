@@ -86,6 +86,21 @@ export function resolveCommand(cmd:BotCommand,rows:RecordItem[]):ResolveResult{
    return {ok:true,resolved:{arbId:arb.id,accountId:acc.id},description:`Liquidar "${arb.data.event}" — ${acc.data.house} · ${acc.data.holder}: ${statusApostaLabel[cmd.status]}${['ganhou','cashout'].includes(cmd.status)?`, retorno R$ ${(cmd.retorno||0).toFixed(2).replace('.',',')}`:''}`};
   }
 
+  case 'arb_editar_aposta':{
+   const arb=resolveArbByEvent(rows,cmd.evento);
+   if(!arb)return {ok:false,error:`Não encontrei nenhuma arbitragem parecida com "${cmd.evento}".`};
+   const acc=resolveAccount(rows,cmd.conta);
+   if(!acc)return {ok:false,error:`Não encontrei nenhuma conta parecida com "${cmd.conta}", ou o nome bate com mais de uma conta ao mesmo tempo. Diga o nome da casa junto com o titular (ex: "Pagolbet do Manel").`};
+   const bets=arb.data.bets.filter((b:any)=>b.account===acc.id);
+   if(!bets.length)return {ok:false,error:`Não encontrei uma aposta na conta ${acc.data.house} · ${acc.data.holder} dentro de "${arb.data.event}".`};
+   if(bets.length>1)return {ok:false,error:`Tem mais de uma aposta na conta ${acc.data.house} · ${acc.data.holder} dentro de "${arb.data.event}" — não dá pra saber qual editar por voz. Edite pelo site.`};
+   if(cmd.odd===undefined&&cmd.valor===undefined)return {ok:false,error:'Não entendi o que precisa mudar nessa aposta. Diga a odd ou a stake nova.'};
+   const changes:string[]=[];
+   if(cmd.odd!==undefined)changes.push(`odd: ${cmd.odd}`);
+   if(cmd.valor!==undefined)changes.push(`stake: R$ ${cmd.valor.toFixed(2).replace('.',',')}`);
+   return {ok:true,resolved:{arbId:arb.id,accountId:acc.id},description:`Editar aposta de "${arb.data.event}" — ${acc.data.house} · ${acc.data.holder}: ${changes.join(', ')}`};
+  }
+
   case 'excluir_conta':{
    const acc=resolveAccount(rows,cmd.conta);
    if(!acc)return {ok:false,error:`Não encontrei nenhuma conta parecida com "${cmd.conta}", ou o nome bate com mais de uma conta ao mesmo tempo. Diga o nome da casa junto com o titular (ex: "Pagolbet do Manel").`};
@@ -145,6 +160,26 @@ export function resolveCommand(cmd:BotCommand,rows:RecordItem[]):ResolveResult{
    return {ok:true,resolved:{odd5Id:entry.id},description:`⚠️ Excluir o ODD5 "${entry.data.event}"`};
   }
 
+  case 'odd5_editar':{
+   const entry=resolveOdd5(rows,cmd.evento,false);
+   if(!entry)return {ok:false,error:`Não encontrei nenhum ODD5 parecido com "${cmd.evento}".`};
+   let acc:ReturnType<typeof resolveAccount>=null;
+   if(cmd.conta){
+    acc=resolveAccount(rows,cmd.conta);
+    if(!acc)return {ok:false,error:`Não encontrei nenhuma conta parecida com "${cmd.conta}", ou o nome bate com mais de uma conta ao mesmo tempo. Diga o nome da casa junto com o titular (ex: "Pagolbet do Manel").`};
+   }
+   if(!cmd.mercados&&cmd.odd===undefined&&cmd.valor===undefined&&!acc&&!cmd.data)return {ok:false,error:'Não entendi o que precisa mudar nessa entrada. Diga o campo e o novo valor (ex: "muda a stake pra 75 reais").'};
+   const resolved:Resolved={odd5Id:entry.id};
+   if(acc)resolved.accountId=acc.id;
+   const changes:string[]=[];
+   if(cmd.mercados)changes.push(`mercado(s): ${cmd.mercados.join(' | ')}`);
+   if(cmd.odd!==undefined)changes.push(`odd: ${cmd.odd}`);
+   if(cmd.valor!==undefined)changes.push(`stake: R$ ${cmd.valor.toFixed(2).replace('.',',')}`);
+   if(acc)changes.push(`conta: ${acc.data.house} · ${acc.data.holder}`);
+   if(cmd.data)changes.push(`data: ${cmd.data}`);
+   return {ok:true,resolved,description:`Editar ODD5 "${entry.data.event}" — ${changes.join(', ')}`};
+  }
+
   case 'camilo_criar':{
    const acc=resolveAccount(rows,cmd.conta);
    if(!acc)return {ok:false,error:`Não encontrei nenhuma conta parecida com "${cmd.conta}", ou o nome bate com mais de uma conta ao mesmo tempo. Diga o nome da casa junto com o titular (ex: "Pagolbet do Manel").`};
@@ -161,6 +196,26 @@ export function resolveCommand(cmd:BotCommand,rows:RecordItem[]):ResolveResult{
    const entry=resolveCamilo(rows,cmd.evento,false);
    if(!entry)return {ok:false,error:`Não encontrei nenhuma entrada da Camilo parecida com "${cmd.evento}".`};
    return {ok:true,resolved:{camiloId:entry.id},description:`⚠️ Excluir a entrada da Camilo "${entry.data.event}"`};
+  }
+
+  case 'camilo_editar':{
+   const entry=resolveCamilo(rows,cmd.evento,false);
+   if(!entry)return {ok:false,error:`Não encontrei nenhuma entrada da Camilo parecida com "${cmd.evento}".`};
+   let acc:ReturnType<typeof resolveAccount>=null;
+   if(cmd.conta){
+    acc=resolveAccount(rows,cmd.conta);
+    if(!acc)return {ok:false,error:`Não encontrei nenhuma conta parecida com "${cmd.conta}", ou o nome bate com mais de uma conta ao mesmo tempo. Diga o nome da casa junto com o titular (ex: "Pagolbet do Manel").`};
+   }
+   if(!cmd.mercados&&cmd.odd===undefined&&cmd.valor===undefined&&!acc&&!cmd.data)return {ok:false,error:'Não entendi o que precisa mudar nessa entrada. Diga o campo e o novo valor (ex: "muda a stake pra 75 reais").'};
+   const resolved:Resolved={camiloId:entry.id};
+   if(acc)resolved.accountId=acc.id;
+   const changes:string[]=[];
+   if(cmd.mercados)changes.push(`mercado(s): ${cmd.mercados.join(' | ')}`);
+   if(cmd.odd!==undefined)changes.push(`odd: ${cmd.odd}`);
+   if(cmd.valor!==undefined)changes.push(`stake: R$ ${cmd.valor.toFixed(2).replace('.',',')}`);
+   if(acc)changes.push(`conta: ${acc.data.house} · ${acc.data.holder}`);
+   if(cmd.data)changes.push(`data: ${cmd.data}`);
+   return {ok:true,resolved,description:`Editar Camilo "${entry.data.event}" — ${changes.join(', ')}`};
   }
 
   case 'nao_entendi':
@@ -242,6 +297,16 @@ export async function executeCommand(cmd:BotCommand,resolved:Resolved,rows:Recor
     const r=await callHandler(recordsPost,origin,'/api/records','POST',{kind:'arb',id:arb.id,revision:arb.revision,data});
     return r.ok?{ok:true,text:`✅ "${arb.data.event}" liquidada como ${statusApostaLabel[cmd.status]}.`}:{ok:false,text:'❌ '+(r.json.error||'Não foi possível liquidar.')};
    }
+   case 'arb_editar_aposta':{
+    const arb=rows.find(r=>r.id===resolved.arbId&&r.kind==='arb');
+    if(!arb)return {ok:false,text:'❌ Essa arbitragem não existe mais. Sincronize e tente de novo.'};
+    const bets=arb.data.bets.map((b:any)=>b.account===resolved.accountId
+     ?{...b,...(cmd.odd!==undefined?{odd:cmd.odd}:{}),...(cmd.valor!==undefined?{stake:toCents(cmd.valor)}:{})}
+     :b);
+    const data={...arb.data,bets};
+    const r=await callHandler(recordsPost,origin,'/api/records','POST',{kind:'arb',id:arb.id,revision:arb.revision,data});
+    return r.ok?{ok:true,text:`✅ Aposta de "${arb.data.event}" atualizada.`}:{ok:false,text:'❌ '+(r.json.error||'Não foi possível editar.')};
+   }
    case 'excluir_conta':{
     const acc=rows.find(r=>r.id===resolved.accountId);
     if(!acc)return {ok:false,text:'❌ Essa conta não existe mais.'};
@@ -301,6 +366,22 @@ export async function executeCommand(cmd:BotCommand,resolved:Resolved,rows:Recor
     const r=await callHandler(odd5Post,origin,'/api/odd5','POST',{action:'delete',id:entry.id,revision:entry.revision});
     return r.ok?{ok:true,text:`✅ ODD5 "${entry.data.event}" excluído.`}:{ok:false,text:'❌ '+(r.json.error||'Não foi possível excluir.')};
    }
+   case 'odd5_editar':{
+    const entry=rows.find(r=>r.id===resolved.odd5Id);
+    if(!entry)return {ok:false,text:'❌ Esse ODD5 não existe mais. Sincronize e tente de novo.'};
+    const acc=resolved.accountId?rows.find(r=>r.id===resolved.accountId):null;
+    if(resolved.accountId&&!acc)return {ok:false,text:'❌ Essa conta não existe mais. Sincronize e tente de novo.'};
+    const r=await callHandler(odd5Post,origin,'/api/odd5','POST',{
+     action:'edit',id:entry.id,revision:entry.revision,
+     event:entry.data.event,
+     markets:cmd.mercados||entry.data.markets,
+     odd:cmd.odd??entry.data.odd,
+     stake:cmd.valor!==undefined?toCents(cmd.valor):entry.data.stake,
+     accountId:acc?acc.id:entry.data.accountId,
+     date:cmd.data||entry.data.date,
+    });
+    return r.ok?{ok:true,text:`✅ ODD5 "${entry.data.event}" atualizado.`}:{ok:false,text:'❌ '+(r.json.error||'Não foi possível editar.')};
+   }
    case 'camilo_criar':{
     const acc=rows.find(r=>r.id===resolved.accountId);
     if(!acc)return {ok:false,text:'❌ Essa conta não existe mais. Sincronize e tente de novo.'};
@@ -318,6 +399,22 @@ export async function executeCommand(cmd:BotCommand,resolved:Resolved,rows:Recor
     if(!entry)return {ok:false,text:'❌ Essa entrada da Camilo não existe mais.'};
     const r=await callHandler(camiloPost,origin,'/api/camilo','POST',{action:'delete',id:entry.id,revision:entry.revision});
     return r.ok?{ok:true,text:`✅ Entrada da Camilo "${entry.data.event}" excluída.`}:{ok:false,text:'❌ '+(r.json.error||'Não foi possível excluir.')};
+   }
+   case 'camilo_editar':{
+    const entry=rows.find(r=>r.id===resolved.camiloId);
+    if(!entry)return {ok:false,text:'❌ Essa entrada da Camilo não existe mais. Sincronize e tente de novo.'};
+    const acc=resolved.accountId?rows.find(r=>r.id===resolved.accountId):null;
+    if(resolved.accountId&&!acc)return {ok:false,text:'❌ Essa conta não existe mais. Sincronize e tente de novo.'};
+    const r=await callHandler(camiloPost,origin,'/api/camilo','POST',{
+     action:'edit',id:entry.id,revision:entry.revision,
+     event:entry.data.event,
+     markets:cmd.mercados||entry.data.markets,
+     odd:cmd.odd??entry.data.odd,
+     stake:cmd.valor!==undefined?toCents(cmd.valor):entry.data.stake,
+     accountId:acc?acc.id:entry.data.accountId,
+     date:cmd.data||entry.data.date,
+    });
+    return r.ok?{ok:true,text:`✅ Camilo "${entry.data.event}" atualizada.`}:{ok:false,text:'❌ '+(r.json.error||'Não foi possível editar.')};
    }
    case 'nao_entendi':
     return {ok:false,text:'❌ Não entendi o comando.'};

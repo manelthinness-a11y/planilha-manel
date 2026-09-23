@@ -99,6 +99,7 @@ export const botCommandSchema=z.discriminatedUnion('acao',[
   conta:txt(),valor:reais,odd:z.number().min(1).max(1000),status:z.enum(['pendente','ganhou','perdeu','cancelada','cashout']).default('pendente'),retorno:reais.optional(),
  })).min(2).max(10)}),
  z.object({acao:z.literal('liquidar_aposta_arbitragem'),evento:txt(),conta:txt(),status:z.enum(['ganhou','perdeu','cancelada','cashout']),retorno:reais.optional()}),
+ z.object({acao:z.literal('arb_editar_aposta'),evento:txt(),conta:txt(),odd:z.number().min(1).max(1000).optional(),valor:reais.optional()}),
  z.object({acao:z.literal('excluir_conta'),conta:txt()}),
  z.object({acao:z.literal('excluir_pessoa_comissao'),pessoa:txt()}),
  z.object({acao:z.literal('excluir_arbitragem'),evento:txt()}),
@@ -108,9 +109,11 @@ export const botCommandSchema=z.discriminatedUnion('acao',[
  z.object({acao:z.literal('odd5_criar'),evento:txt(),mercados:z.array(txt(120)).min(1).max(10),odd:z.number().min(1).max(1000),valor:reais,conta:txt()}),
  z.object({acao:z.literal('odd5_liquidar'),evento:txt(),resultado:z.enum(['green','red'])}),
  z.object({acao:z.literal('odd5_excluir'),evento:txt()}),
+ z.object({acao:z.literal('odd5_editar'),evento:txt(),mercados:z.array(txt(120)).min(1).max(10).optional(),odd:z.number().min(1).max(1000).optional(),valor:reais.optional(),conta:txt().optional(),data:dateStr}),
  z.object({acao:z.literal('camilo_criar'),evento:txt(),mercados:z.array(txt(120)).min(1).max(10),odd:z.number().min(1).max(1000),valor:reais,conta:txt(),data:dateStr}),
  z.object({acao:z.literal('camilo_liquidar'),evento:txt(),resultado:z.enum(['green','red'])}),
  z.object({acao:z.literal('camilo_excluir'),evento:txt()}),
+ z.object({acao:z.literal('camilo_editar'),evento:txt(),mercados:z.array(txt(120)).min(1).max(10).optional(),odd:z.number().min(1).max(1000).optional(),valor:reais.optional(),conta:txt().optional(),data:dateStr}),
  z.object({acao:z.literal('nao_entendi'),motivo:z.string().max(300).optional()}),
 ]);
 export type BotCommand=z.infer<typeof botCommandSchema>;
@@ -157,6 +160,7 @@ Escolha exatamente UMA "acao" dentre estas e preencha os campos daquele formato 
 {"acao":"criar_comissao","pessoa":string,"tipo":"comissao"|"debito"|"pagamento","valor":number,"data":string?,"observacao":string?}
 {"acao":"criar_arbitragem","evento":string,"mercado":string,"data":string?,"observacao":string?,"apostas":[{"conta":string,"valor":number,"odd":number,"status":"pendente"|"ganhou"|"perdeu"|"cancelada"|"cashout","retorno":number?}]}  (mínimo 2 apostas, uma por casa; "retorno" só quando status for ganhou ou cashout — é quanto a casa devolveu no total, não o lucro)
 {"acao":"liquidar_aposta_arbitragem","evento":string,"conta":string,"status":"ganhou"|"perdeu"|"cancelada"|"cashout","retorno":number?}  (usado quando uma arbitragem já cadastrada estava pendente numa casa e agora saiu o resultado dessa casa)
+{"acao":"arb_editar_aposta","evento":string,"conta":string,"odd":number?,"valor":number?}  (corrige a odd e/ou a stake de UMA aposta dentro de uma arbitragem já cadastrada — identifique pelo evento + a conta dessa aposta específica; NÃO mexe no status/retorno, só odd/stake)
 {"acao":"excluir_conta","conta":string}
 {"acao":"excluir_pessoa_comissao","pessoa":string}
 {"acao":"excluir_arbitragem","evento":string}
@@ -166,9 +170,11 @@ Escolha exatamente UMA "acao" dentre estas e preencha os campos daquele formato 
 {"acao":"odd5_criar","evento":string,"mercados":[string],"odd":number,"valor":number,"conta":string}
 {"acao":"odd5_liquidar","evento":string,"resultado":"green"|"red"}
 {"acao":"odd5_excluir","evento":string}
+{"acao":"odd5_editar","evento":string,"mercados":[string]?,"odd":number?,"valor":number?,"conta":string?,"data":string?}  (corrige uma entrada já cadastrada da ODD5, identificada pelo evento — inclua só os campos que estão mudando)
 {"acao":"camilo_criar","evento":string,"mercados":[string],"odd":number,"valor":number,"conta":string,"data":string?}  (aba "Camilo", dentro do grupo Alavancagem no menu — é uma aba própria, diferente da "alavancagem_criar")
 {"acao":"camilo_liquidar","evento":string,"resultado":"green"|"red"}
 {"acao":"camilo_excluir","evento":string}
+{"acao":"camilo_editar","evento":string,"mercados":[string]?,"odd":number?,"valor":number?,"conta":string?,"data":string?}  (corrige uma entrada já cadastrada da Camilo, identificada pelo evento — inclua só os campos que estão mudando)
 {"acao":"nao_entendi","motivo":string?}  (use quando o comando não corresponder a nenhuma ação acima, ou faltar alguma informação essencial)
 
 Regras importantes:
@@ -177,6 +183,8 @@ Regras importantes:
 - Sempre que a pessoa citar o nome da casa E o titular juntos na mesma frase (ex: "casa 365 do Manel", "Bet365 do Manel", "bolsa de apostas do Manel"), o campo "conta" TEM que levar os dois juntos, no formato "casa titular" (ex: "365 Manel") — nunca a casa sozinha nesse caso. Isso é essencial quando o nome da casa é só um número ou é curto (ex: "365"), porque pode haver mais de um titular com conta na mesma casa, e sem o titular junto o sistema não consegue saber qual delas é.
 - Se o comando pedir para "registrar", "cadastrar", "lançar", "entrou", "criar" algo novo, use as ações de criação. Se pedir para "bateu", "não bateu", "ganhou", "perdeu", "finalizar", "liquidar" algo que já existe, use as ações de liquidação.
 - Se o usuário mencionar "Camilo" explicitamente, use sempre uma das ações camilo_* — NUNCA alavancagem_criar/liquidar/excluir. "Camilo" é uma aba própria (grupo "1,3" e "2,0" são só da Alavancagem normal, não têm relação com Camilo).
+- Se a pessoa disser "editar", "corrigir", "mudar", "trocar" ou "ajustar" algo em uma aposta/entrada que já existe (arbitragem, ODD5 ou Camilo), use a ação de edição correspondente (arb_editar_aposta, odd5_editar ou camilo_editar) — nunca crie uma entrada nova nem confunda com liquidar. A Alavancagem (grupos "1,3" e "2,0") não tem ação de edição — se pedirem para editar uma entrada da Alavancagem, use "nao_entendi" explicando que só dá para liquidar, excluir ou criar uma nova.
+- Nas ações de edição, inclua no JSON APENAS os campos que a pessoa realmente pediu para mudar — nunca repita um valor que ela não citou nessa frase, mesmo que você veja o valor atual nas listas acima. Campo omitido = não mexe nele.
 - Nunca responda com texto fora do JSON. Nunca use markdown.`;
 }
 
