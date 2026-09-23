@@ -1,0 +1,36 @@
+name: Testes
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixa o código
+        uses: actions/checkout@v4
+
+      - name: Prepara o pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+
+      - name: Prepara o Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Instala as dependências
+        run: pnpm install --frozen-lockfile
+
+      - name: Roda o build
+        run: pnpm run build
+
+      - name: Testes de arbitragem, bancos e ODD 5
+        run: node tests/arbitrage-actions.test.cjs
+
+      - name: Testes do bot por voz/áudio
+        run: node tests/voice-arbitrage.test.cjs
