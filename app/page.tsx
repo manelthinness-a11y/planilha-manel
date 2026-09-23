@@ -26,6 +26,7 @@ import {AccessGate} from '@/components/access-gate';
 import {PeriodBar} from '@/components/period-bar';
 import {type PeriodFilter,inPeriod,currentMonthFilter} from '@/lib/period-filter';
 const today=()=>new Date().toISOString().slice(0,10);
+const VIEW_STORAGE_KEY='planilha-manel:view';
 const tabs=[['painel','Visão geral',LayoutDashboard],['contas','Contas',Wallet],['arbitragens','Arbitragens',Layers],['alavancagem','Alavancagem 1.3',ArrowUpRight],['odd5','ODD 5',Target],['alavancagem2','Alavancagem 2,0',TrendingUp],['bancos','Bancos',Landmark],['extrato','Movimentações',ArrowLeftRight],['freebets','Freebets',Gift],['extracao','Extração',Filter],['comissoes','Comissões',HandCoins]] as const;
 function Field({label,...p}:any){return <label className="field">{label}<input {...p}/></label>}
 function Choice({label,value,onChange,items,disabled=false}:any){return <label className="field">{label}<Select disabled={disabled} value={value||''} onValueChange={onChange}><SelectTrigger className="picker"><SelectValue placeholder="Selecione"/></SelectTrigger><SelectContent>{items.map((i:any)=><SelectItem key={i[0]} value={i[0]}>{i[1]}</SelectItem>)}</SelectContent></Select></label>}
@@ -49,6 +50,27 @@ function Dashboard(){
  const [rows,setRows]=useState<RecordItem[]>([]),[loading,setLoading]=useState(true),[error,setError]=useState(''),[tab,setTab]=useState('painel'),[modal,setModal]=useState(''),[settling,setSettling]=useState(false),[draft,setDraft]=useState<any>({}),[saving,setSaving]=useState(false),[filter,setFilter]=useState('all'),[selectedPerson,setSelectedPerson]=useState(''),[selectedHouse,setSelectedHouse]=useState(''),[menuOpen,setMenuOpen]=useState(false);
  const [period,setPeriod]=useState<PeriodFilter>(()=>currentMonthFilter());
  const [selectedBankPerson,setSelectedBankPerson]=useState(''),[selectedBank,setSelectedBank]=useState('');
+ // Guarda em que aba e com quais filtros a pessoa estava, pra um F5 (recarregar
+ // a página) só atualizar os dados sem jogar de volta pra Visão geral.
+ useEffect(()=>{
+  try{
+   const raw=sessionStorage.getItem(VIEW_STORAGE_KEY);
+   if(!raw)return;
+   const saved=JSON.parse(raw);
+   if(saved.tab)setTab(saved.tab);
+   if(saved.filter)setFilter(saved.filter);
+   if(saved.selectedPerson)setSelectedPerson(saved.selectedPerson);
+   if(saved.selectedHouse)setSelectedHouse(saved.selectedHouse);
+   if(saved.selectedBankPerson)setSelectedBankPerson(saved.selectedBankPerson);
+   if(saved.selectedBank)setSelectedBank(saved.selectedBank);
+   if(saved.period)setPeriod(saved.period);
+  }catch{}
+ },[]);
+ useEffect(()=>{
+  try{
+   sessionStorage.setItem(VIEW_STORAGE_KEY,JSON.stringify({tab,filter,selectedPerson,selectedHouse,selectedBankPerson,selectedBank,period}));
+  }catch{}
+ },[tab,filter,selectedPerson,selectedHouse,selectedBankPerson,selectedBank,period]);
  const banks=bankSummary(rows);
  const bankHolderSuggestions=[...new Map(rows.filter(r=>r.kind==='account'||r.kind==='bank').map(r=>[bankNameKey(r.data.holder),r.data.holder as string])).values()].sort((a,b)=>a.localeCompare(b,'pt-BR'));
  const refreshSequence=useRef(0);
