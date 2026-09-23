@@ -5,6 +5,7 @@ import {recordsSnapshot,insertRecordSql,updateRecordSql,deleteOdd5Sql} from '@/l
 import {settleOdd5,odd5DefaultStakeId} from '@/lib/odd5';
 import {backupLog} from '@/lib/backup';
 import {checkAccess,unauthorized} from '@/lib/auth';
+import {alertOdd5Settled} from '@/lib/alerts';
 const brl=(cents:number)=>(cents/100).toFixed(2).replace('.',',');
 const entryColumns=(acao:string,data:any):[string,string|number][]=>[['Ação',acao],['Evento',data.event],['Mercado(s)',(data.markets||[]).join(' | ')],['Odd',data.odd],['Conta',data.account],['Casa',data.house],['Stake (R$)',brl(data.stake)],['Data',data.date||''],['Resultado',data.result],['Prêmio (R$)',brl(data.prize)]];
 const str=z.string().trim().min(1).max(200);
@@ -24,6 +25,7 @@ export async function POST(req:Request){if(!checkAccess(req))return unauthorized
  const snapshot=recordsSnapshot(rows);
  let result;
  let logEvent:{kind:string;action:string;id?:string;revision?:number;summary?:string;data?:unknown;columns?:[string,string|number][]}|null=null;
+ let alertAfter:(()=>Promise<void>)|null=null;
  if(body.action==='create'){
   const accountRow=rows.find(r=>r.kind==='account'&&r.id===body.accountId);
   if(!accountRow)return Response.json({error:'Selecione uma conta válida.'},{status:400});
@@ -48,6 +50,7 @@ export async function POST(req:Request){if(!checkAccess(req))return unauthorized
   const data=settleOdd5(row.data,body.result);
   result=await database().prepare(updateRecordSql).bind(JSON.stringify(data),row.id,body.revision,snapshot).run();
   logEvent={kind:'odd5',action:'settle',id:row.id,revision:body.revision+1,summary:'ODD 5 · '+body.result+' · '+data.event,data,columns:entryColumns('Liquidação',data)};
+  alertAfter=()=>alertOdd5Settled(data.event,body.result,data.prize);
  }else if(body.action==='delete'){
   const row=rows.find(r=>r.id===body.id&&r.kind==='odd5');
   if(!row||row.revision!==body.revision)return Response.json({error:'A entrada mudou. Sincronize antes de excluir.'},{status:409});
@@ -63,5 +66,6 @@ export async function POST(req:Request){if(!checkAccess(req))return unauthorized
  }
  if(!result.meta.changes)return Response.json({error:'Os dados mudaram. Sincronize e confira antes de repetir.'},{status:409});
  if(logEvent)await backupLog(logEvent);
+ if(alertAfter)await alertAfter();
  return Response.json({ok:true},{headers:{'Cache-Control':'no-store'}});
 }catch(e){return Response.json({error:e instanceof z.ZodError?'Confira o evento e os valores.':e instanceof Error?e.message:'Não foi possível salvar.'},{status:400});}}

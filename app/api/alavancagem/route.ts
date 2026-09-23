@@ -5,6 +5,7 @@ import {recordsSnapshot,insertRecordSql,updateRecordSql,deleteAlavancagemSql} fr
 import {nextLeverage,settleLeverage,groupDefaultStake,defaultStakeSettingId,mirrorGroupOf,TRACKS,type Group} from '@/lib/alavancagem';
 import {backupLog} from '@/lib/backup';
 import {checkAccess,unauthorized} from '@/lib/auth';
+import {alertAlavancagemRed,alertAlavancagemCycleComplete} from '@/lib/alerts';
 const brl=(cents:number)=>(cents/100).toFixed(2).replace('.',',');
 const entryColumns=(acao:string,data:any):[string,string|number][]=>[['Ação',acao],['Sequência',data.sequence],['Ciclo',data.cycle],['Evento',data.event],['Mercado',data.market],['Data',data.date],['Odd',data.odd],['Conta',data.account],['Casa',data.house],['Stake (R$)',brl(data.stake)],['Resultado',data.result],['Prêmio (R$)',brl(data.prize)]];
 const groupEnum=z.enum(['alavancagem','individual','alavancagem2','individual2']) as z.ZodType<Group>;
@@ -22,6 +23,7 @@ export async function POST(req:Request){if(!checkAccess(req))return unauthorized
  const snapshot=recordsSnapshot(rows);
  let result;
  let logEvent:{kind:string;action:string;id?:string;revision?:number;summary?:string;data?:unknown;columns?:[string,string|number][]}|null=null;
+ let alertAfter:(()=>Promise<void>)|null=null;
  if(body.action==='create'){
   const track=TRACKS.find(t=>t.mainGroup===body.group||t.individualGroup===body.group);
   if(track&&(body.odd<track.oddMin||body.odd>track.oddMax))return Response.json({error:`A odd deve estar entre ${track.oddMin.toFixed(2)} e ${track.oddMax.toFixed(2)} nesta aba.`},{status:400});
@@ -54,6 +56,11 @@ export async function POST(req:Request){if(!checkAccess(req))return unauthorized
   const data=settleLeverage(row.data,body.result);
   result=await database().prepare(updateRecordSql).bind(JSON.stringify(data),row.id,body.revision,snapshot).run();
   logEvent={kind:'alavancagem',action:'settle',id:row.id,revision:body.revision+1,summary:body.group+' · '+body.result+' · '+data.event,data,columns:entryColumns('Liquidação',data)};
+  // Alerta só no que "fecha capítulo": quebrou (Red) ou bateu a meta do ciclo (Green com prêmio >= R$ 50,00). Green parcial (ciclo continua) não avisa.
+  const track=TRACKS.find(tr=>tr.mainGroup===body.group||tr.individualGroup===body.group);
+  const trackLabel=track?track.label+(body.group===track.individualGroup?' · Individual':''):body.group;
+  if(body.result==='Red')alertAfter=()=>alertAlavancagemRed(trackLabel,data.event);
+  else if(body.result==='Green'&&data.prize>=5000)alertAfter=()=>alertAlavancagemCycleComplete(trackLabel,data.event,data.prize);
  }else if(body.action==='delete'){
   const row=rows.find(r=>r.id===body.id&&r.kind==='alavancagem'&&(r.data.group??'alavancagem')===body.group);
   if(!row||row.revision!==body.revision)return Response.json({error:'A entrada mudou. Sincronize antes de excluir.'},{status:409});
@@ -70,5 +77,6 @@ export async function POST(req:Request){if(!checkAccess(req))return unauthorized
  }
  if(!result.meta.changes)return Response.json({error:'Os dados mudaram. Sincronize e confira antes de repetir.'},{status:409});
  if(logEvent)await backupLog(logEvent);
+ if(alertAfter)await alertAfter();
  return Response.json({ok:true},{headers:{'Cache-Control':'no-store'}});
 }catch(e){return Response.json({error:e instanceof z.ZodError?'Confira o evento e a data.':e instanceof Error?e.message:'Não foi possível salvar.'},{status:400});}}

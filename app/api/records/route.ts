@@ -7,6 +7,7 @@ import {bankNameKey} from '@/lib/banks';
 import {prepareBankOperation} from '@/lib/bank-transactions';
 import {backupLog} from '@/lib/backup';
 import {checkAccess,unauthorized} from '@/lib/auth';
+import {alertArbSettled} from '@/lib/alerts';
 function summarize(kind:string,data:any):string{
  if(kind==='account')return data.house+' · '+data.holder;
  if(kind==='movement')return data.type+' · R$ '+(data.amount/100).toFixed(2).replace('.',',');
@@ -43,6 +44,8 @@ export async function POST(req:Request){if(!checkAccess(req))return unauthorized
  const body=z.object({kind:z.enum(["account","movement","arb","bank","commission_person","commission_entry"]),data:z.unknown(),id:z.string().optional(),revision:z.number().int().optional()}).parse(await req.json());if(!Object.hasOwn(schemas,body.kind))throw new Error('Registro inválido');
  const data:any=schemas[body.kind as keyof typeof schemas].parse(body.data);const rows=await all();const old=body.id?rows.find((r:any)=>r.id===body.id):null;
  if(body.id&&(!old||old.kind!==body.kind))throw new Error('Registro não encontrado');
+ // Para o alerta de "arbitragem liquidada": só dispara quando ela SAI do estado pendente (nasce quitada não conta).
+ const oldArbBetsDone=body.kind==='arb'&&old?!old.data.bets.some((b:any)=>b.status==='Pendente'):false;
  if(old&&old.revision!==body.revision)return Response.json({error:'Este registro mudou em outro dispositivo. Atualize antes de editar.',code:'stale'},{status:409});
  if(body.kind==='bank'&&rows.some((r:any)=>r.kind==='bank'&&r.id!==body.id&&bankNameKey(r.data.bank)===bankNameKey(data.bank)&&bankNameKey(r.data.holder)===bankNameKey(data.holder)))return Response.json({error:'Este banco já está cadastrado para essa pessoa. Edite o banco existente para atualizar o saldo.'},{status:400});
  if(body.kind==='account'&&rows.some((r:any)=>r.kind==='account'&&r.id!==body.id&&r.data.house.toLowerCase()===data.house?.toLowerCase()&&r.data.holder.toLowerCase()===data.holder?.toLowerCase()))throw new Error('Essa casa e titular já estão cadastrados');
@@ -93,6 +96,10 @@ export async function POST(req:Request){if(!checkAccess(req))return unauthorized
  if(!res.meta.changes)return Response.json({error:'Os dados mudaram em outro dispositivo. Sincronize e confira o registro antes de salvar novamente.',code:'stale'},{status:409});
  const saved={id,kind:body.kind,data,revision:old?old.revision+1:1};
  await backupLog({kind:body.kind,action:old?'update':'create',id,revision:saved.revision,summary:summarize(body.kind,data),data,columns:backupColumns(body.kind,old?'update':'create',data,rows)});
+ if(body.kind==='arb'&&!oldArbBetsDone&&!data.bets.some((b:any)=>b.status==='Pendente')){
+  const arbResult=s.arbs.find((a:any)=>a.id===id);
+  if(arbResult)await alertArbSettled(arbResult.event,arbResult.market,arbResult.result,arbResult.extractionResult);
+ }
  // If the bank sync landed, swap in its post-update row too — otherwise the response would hand
  // back the bank's stale pre-sync balance until the client's next full refetch.
  const bankSynced=bankOp&&!bankWarning?bankOp.changes:[];
