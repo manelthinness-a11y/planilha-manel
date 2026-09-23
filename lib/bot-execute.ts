@@ -155,6 +155,8 @@ async function callHandler(handler:(req:Request)=>Promise<Response>,origin:strin
  // Como o bot já está autenticado pelo próprio Telegram (ALLOWED_USER_ID),
  // usa o segredo do Worker direto daqui em vez de pedir senha pro usuário.
  const password=(env as unknown as {ACCESS_PASSWORD?:string}).ACCESS_PASSWORD||'';
+ // DEBUG TEMPORÁRIO — remover depois de descobrir o bug do bot.
+ console.log('[debug-auth] callHandler',JSON.stringify({path,passwordLen:password.length}));
  const req=new Request(origin+path,{method,headers:{'content-type':'application/json',origin,'x-access-password':password},body:JSON.stringify(body)});
  const res=await handler(req);
  const json:any=await res.json().catch(()=>({}));
