@@ -5,6 +5,7 @@ import { ptBR } from 'date-fns/locale';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { type PeriodFilter, periodLabel, currentMonthFilter } from '@/lib/period-filter';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 function parseDate(s: string): Date { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); }
 function formatDate(d: Date): string { return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-'); }
@@ -36,5 +37,6 @@ export function PeriodBar({ filter, onChange }: { filter: PeriodFilter; onChange
    </PopoverContent>
   </Popover>
   {!isCurrent && filter.mode !== 'all' && <button type="button" className="period-reset text-button" onClick={() => onChange(currentMonthFilter())}>Voltar pro mês atual</button>}
+  <ThemeToggle />
  </div>;
 }
