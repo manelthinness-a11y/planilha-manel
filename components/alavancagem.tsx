@@ -6,7 +6,8 @@ import {money,RecordItem,summary} from '@/lib/banca';
 import {leverageEntries,nextLeverage,resetStakeFor,leverageNet,type Group,type Track} from '@/lib/alavancagem';
 import {PersonAccountPicker} from '@/components/person-account-picker';
 import {apiFetch} from '@/lib/api-client';
-type PanelProps={rows:RecordItem[];disabled:boolean;onUpdated:()=>Promise<unknown>};
+import {type PeriodFilter,inPeriod} from '@/lib/period-filter';
+type PanelProps={rows:RecordItem[];disabled:boolean;onUpdated:()=>Promise<unknown>;period:PeriodFilter};
 export function AlavancagemPanel(props:PanelProps&{track:Track}){
  const {track}=props;
  const [group,setGroup]=useState<Group>(track.mainGroup);
@@ -18,8 +19,9 @@ export function AlavancagemPanel(props:PanelProps&{track:Track}){
   {groups.map(value=><div key={value} role="tabpanel" id={'panel-'+value} aria-labelledby={'tab-'+value} hidden={group!==value}><LeverageRegister {...props} group={value}/></div>)}
  </div>;
 }
-function LeverageRegister({rows,disabled,onUpdated,group,track}:PanelProps&{group:Group;track:Track}){
- const entries=leverageEntries(rows,group),pending=entries.find(r=>r.data.result==='Pendente');
+function LeverageRegister({rows,disabled,onUpdated,group,track,period}:PanelProps&{group:Group;track:Track}){
+ const allEntries=leverageEntries(rows,group),pending=allEntries.find(r=>r.data.result==='Pendente');
+ const visibleEntries=allEntries.filter(r=>inPeriod(r.data.date,period));
  const next=pending?null:nextLeverage(rows,group);
  const accounts=summary(rows).accounts;
  const [open,setOpen]=useState(false),[event,setEvent]=useState(''),[date,setDate]=useState(''),[odd,setOdd]=useState(track.oddDefault),[market,setMarket]=useState(''),[accountId,setAccountId]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false),[confirm,setConfirm]=useState<{id:string;revision:number;result:'Green'|'Red';event:string;stake:number;odd:number}|null>(null);
@@ -32,7 +34,7 @@ function LeverageRegister({rows,disabled,onUpdated,group,track}:PanelProps&{grou
   const data=await response.json();if(!response.ok)throw new Error(data.error||'Não foi possível salvar.');
   setOpen(false);setConfirm(null);setDeleteTarget(null);setSettingsOpen(false);await onUpdated();
  }catch(e){setError(e instanceof Error?e.message:'Falha na conexão. Sincronize antes de tentar novamente.');}finally{lock.current=false;setBusy(false);}}
- const last=entries.at(-1);
+ const last=allEntries.at(-1);
  const defaultStake=resetStakeFor(rows,group);
  const net=leverageNet(rows,group);
  const isIndividual=group===track.individualGroup;
@@ -58,7 +60,7 @@ function LeverageRegister({rows,disabled,onUpdated,group,track}:PanelProps&{grou
   </section>
   <p className="hint">O prêmio inclui a stake. Ao atingir R$ 50,00, o ciclo termina. A stake fica reservada como &quot;em aberto&quot; na conta enquanto a entrada está pendente; no Red ela é descontada em definitivo e no Green o lucro entra no saldo real da conta selecionada.</p>
   {error&&!open&&!confirm&&!deleteTarget&&!settingsOpen&&<p className="error" role="alert">{error}</p>}
-  <div className="account-grid">{[...entries].reverse().map(r=><article key={r.id} className="account-card">
+  <div className="account-grid">{[...visibleEntries].reverse().map(r=><article key={r.id} className="account-card">
    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
     <small>Entrada {r.data.sequence} · Ciclo {r.data.cycle} · {r.data.date.split('-').reverse().join('/')}</small>
     <button type="button" className="text-button negative" style={{display:'inline-flex',alignItems:'center',gap:4}} disabled={disabled||busy} onClick={()=>{setError('');setDeleteTarget({id:r.id,revision:r.revision,event:r.data.event,sequence:r.data.sequence});}} aria-label={'Excluir entrada '+r.data.sequence}><Trash2 size={14}/>Excluir</button>
@@ -70,7 +72,8 @@ function LeverageRegister({rows,disabled,onUpdated,group,track}:PanelProps&{grou
    {r.data.result==='Green'&&r.data.prize>=5000&&<p className="positive">Meta ultrapassada · ciclo concluído</p>}
    {r.data.result==='Pendente'&&<div className="account-actions">{(['Green','Red'] as const).map(result=><button key={result} type="button" disabled={disabled||busy} onClick={()=>{setError('');setConfirm({id:r.id,revision:r.revision,result,event:r.data.event,stake:r.data.stake,odd:r.data.odd??fallbackOdd});}}>{result}</button>)}</div>}
   </article>)}</div>
-  {!entries.length&&<div className="quiet-empty">Registre a primeira entrada com stake de {money(defaultStake)}.</div>}
+  {!allEntries.length&&<div className="quiet-empty">Registre a primeira entrada com stake de {money(defaultStake)}.</div>}
+  {!!allEntries.length&&!visibleEntries.length&&<div className="quiet-empty">Nenhuma entrada no período selecionado.</div>}
   <Dialog open={open} onOpenChange={v=>{if(!busy)setOpen(v);}}><DialogContent className="editor"><DialogHeader><DialogTitle>Nova entrada</DialogTitle><DialogDescription>Stake automática de {money(creation?.stake||defaultStake)} · odd entre {oddRangeLabel}. A entrada será registrada como pendente e a stake ficará reservada no saldo da conta escolhida.</DialogDescription></DialogHeader><form onSubmit={e=>{e.preventDefault();const picked=accounts.find(a=>a.id===accountId);if(!picked){setError('Selecione a pessoa e a casa.');return;}if(creation)void send({action:'create',group,event,date,odd:Number(odd),market,account:picked.holder,house:picked.house,accountId:picked.id,expectedSequence:creation.sequence});}}>
    <label className="field">Evento / descrição<input required maxLength={200} value={event} onChange={e=>setEvent(e.target.value)} disabled={busy} placeholder="Ex.: Time A x Time B — seleção"/></label>
    <label className="field">Data<input required type="date" value={date} onChange={e=>setDate(e.target.value)} disabled={busy}/></label><label className="field">Odd<input required type="number" min={track.oddMin} max={track.oddMax} step="0.01" value={odd} onChange={e=>setOdd(e.target.value)} disabled={busy}/></label><label className="field">Mercado<input required maxLength={120} value={market} onChange={e=>setMarket(e.target.value)} disabled={busy}/></label>

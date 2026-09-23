@@ -6,11 +6,12 @@ import {settleOdd5,odd5DefaultStakeId} from '@/lib/odd5';
 import {backupLog} from '@/lib/backup';
 import {checkAccess,unauthorized} from '@/lib/auth';
 const brl=(cents:number)=>(cents/100).toFixed(2).replace('.',',');
-const entryColumns=(acao:string,data:any):[string,string|number][]=>[['Ação',acao],['Evento',data.event],['Mercado(s)',(data.markets||[]).join(' | ')],['Odd',data.odd],['Conta',data.account],['Casa',data.house],['Stake (R$)',brl(data.stake)],['Resultado',data.result],['Prêmio (R$)',brl(data.prize)]];
+const entryColumns=(acao:string,data:any):[string,string|number][]=>[['Ação',acao],['Evento',data.event],['Mercado(s)',(data.markets||[]).join(' | ')],['Odd',data.odd],['Conta',data.account],['Casa',data.house],['Stake (R$)',brl(data.stake)],['Data',data.date||''],['Resultado',data.result],['Prêmio (R$)',brl(data.prize)]];
 const str=z.string().trim().min(1).max(200);
+const dateStr=z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const input=z.discriminatedUnion('action',[
- z.object({action:z.literal('create'),event:str,markets:z.array(str).min(1).max(20),odd:z.number().min(1.01).max(1000),stake:z.number().int().positive().max(10000000000),accountId:z.string().trim().min(1)}),
- z.object({action:z.literal('edit'),id:z.string().min(1),revision:z.number().int().positive(),event:str,markets:z.array(str).min(1).max(20),odd:z.number().min(1.01).max(1000),stake:z.number().int().positive().max(10000000000),accountId:z.string().trim().min(1)}),
+ z.object({action:z.literal('create'),event:str,markets:z.array(str).min(1).max(20),odd:z.number().min(1.01).max(1000),stake:z.number().int().positive().max(10000000000),accountId:z.string().trim().min(1),date:dateStr}),
+ z.object({action:z.literal('edit'),id:z.string().min(1),revision:z.number().int().positive(),event:str,markets:z.array(str).min(1).max(20),odd:z.number().min(1.01).max(1000),stake:z.number().int().positive().max(10000000000),accountId:z.string().trim().min(1),date:dateStr}),
  z.object({action:z.literal('settle'),id:z.string().min(1),revision:z.number().int().positive(),result:z.enum(['Green','Red'])}),
  z.object({action:z.literal('delete'),id:z.string().min(1),revision:z.number().int().positive()}),
  z.object({action:z.literal('set-default-stake'),value:z.number().int().min(100).max(1000000)})
@@ -27,7 +28,7 @@ export async function POST(req:Request){if(!checkAccess(req))return unauthorized
   const accountRow=rows.find(r=>r.kind==='account'&&r.id===body.accountId);
   if(!accountRow)return Response.json({error:'Selecione uma conta válida.'},{status:400});
   const id=crypto.randomUUID();
-  const data={event:body.event,markets:body.markets,odd:body.odd,stake:body.stake,account:accountRow.data.holder,house:accountRow.data.house,accountId:body.accountId,result:'Pendente',prize:0};
+  const data={event:body.event,markets:body.markets,odd:body.odd,stake:body.stake,account:accountRow.data.holder,house:accountRow.data.house,accountId:body.accountId,date:body.date,result:'Pendente',prize:0};
   result=await database().prepare(insertRecordSql).bind(id,'odd5',JSON.stringify(data),snapshot).run();
   if(!result.meta.changes)return Response.json({error:'Os dados mudaram. Sincronize e tente novamente.'},{status:409});
   await backupLog({kind:'odd5',action:'create',id,revision:1,summary:'ODD 5 · '+data.event,data,columns:entryColumns('Cadastro',data)});
@@ -37,7 +38,7 @@ export async function POST(req:Request){if(!checkAccess(req))return unauthorized
   if(!row||row.revision!==body.revision)return Response.json({error:'A entrada mudou. Sincronize antes de editar.'},{status:409});
   const accountRow=rows.find(r=>r.kind==='account'&&r.id===body.accountId);
   if(!accountRow)return Response.json({error:'Selecione uma conta válida.'},{status:400});
-  const data:any={...row.data,event:body.event,markets:body.markets,odd:body.odd,stake:body.stake,account:accountRow.data.holder,house:accountRow.data.house,accountId:body.accountId};
+  const data:any={...row.data,event:body.event,markets:body.markets,odd:body.odd,stake:body.stake,account:accountRow.data.holder,house:accountRow.data.house,accountId:body.accountId,date:body.date};
   if(data.result!=='Pendente')data.prize=data.result==='Green'?Math.round(data.stake*data.odd*100)/100:0;
   result=await database().prepare(updateRecordSql).bind(JSON.stringify(data),row.id,body.revision,snapshot).run();
   logEvent={kind:'odd5',action:'update',id:row.id,revision:body.revision+1,summary:'ODD 5 · edição · '+data.event,data,columns:entryColumns('Atualização',data)};

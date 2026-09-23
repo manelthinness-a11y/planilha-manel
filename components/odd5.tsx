@@ -6,16 +6,19 @@ import {money,RecordItem,summary} from '@/lib/banca';
 import {odd5Entries,odd5Balance,odd5Counts,odd5DefaultStake,odd5OddDefault} from '@/lib/odd5';
 import {PersonAccountPicker} from '@/components/person-account-picker';
 import {apiFetch} from '@/lib/api-client';
-type PanelProps={rows:RecordItem[];disabled:boolean;onUpdated:()=>Promise<unknown>};
+import {type PeriodFilter,inPeriod} from '@/lib/period-filter';
+type PanelProps={rows:RecordItem[];disabled:boolean;onUpdated:()=>Promise<unknown>;period:PeriodFilter};
 const blankMarkets=()=>[''];
-export function Odd5Panel({rows,disabled,onUpdated}:PanelProps){
+const today=()=>{const d=new Date();return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');};
+export function Odd5Panel({rows,disabled,onUpdated,period}:PanelProps){
  const accounts=summary(rows).accounts;
  const entries=odd5Entries(rows);
+ const visibleEntries=entries.filter(r=>inPeriod(r.data.date,period));
  const balance=odd5Balance(rows);
- const counts=odd5Counts(rows);
+ const counts=odd5Counts(visibleEntries as any);
  const defaultStake=odd5DefaultStake(rows);
  const [open,setOpen]=useState(false),[editing,setEditing]=useState<{id:string;revision:number}|null>(null);
- const [event,setEvent]=useState(''),[markets,setMarkets]=useState<string[]>(blankMarkets()),[odd,setOdd]=useState(odd5OddDefault),[stakeInput,setStakeInput]=useState(''),[accountId,setAccountId]=useState('');
+ const [event,setEvent]=useState(''),[markets,setMarkets]=useState<string[]>(blankMarkets()),[odd,setOdd]=useState(odd5OddDefault),[stakeInput,setStakeInput]=useState(''),[accountId,setAccountId]=useState(''),[dateInput,setDateInput]=useState(today());
  const [error,setError]=useState(''),[busy,setBusy]=useState(false);
  const [confirm,setConfirm]=useState<{id:string;revision:number;result:'Green'|'Red';event:string;stake:number;odd:number}|null>(null);
  const [deleteTarget,setDeleteTarget]=useState<{id:string;revision:number;event:string}|null>(null);
@@ -26,8 +29,8 @@ export function Odd5Panel({rows,disabled,onUpdated}:PanelProps){
   const data:any=await response.json();if(!response.ok)throw new Error(data.error||'Não foi possível salvar.');
   setOpen(false);setConfirm(null);setDeleteTarget(null);setSettingsOpen(false);setEditing(null);await onUpdated();
  }catch(e){setError(e instanceof Error?e.message:'Falha na conexão. Sincronize antes de tentar novamente.');}finally{lock.current=false;setBusy(false);}}
- function startCreate(){setEditing(null);setEvent('');setMarkets(blankMarkets());setOdd(odd5OddDefault);setStakeInput((defaultStake/100).toFixed(2));setAccountId('');setError('');setOpen(true);}
- function startEdit(r:any){setEditing({id:r.id,revision:r.revision});setEvent(r.data.event);setMarkets(r.data.markets?.length?r.data.markets:blankMarkets());setOdd(String(r.data.odd));setStakeInput((r.data.stake/100).toFixed(2));setAccountId(r.data.accountId||'');setError('');setOpen(true);}
+ function startCreate(){setEditing(null);setEvent('');setMarkets(blankMarkets());setOdd(odd5OddDefault);setStakeInput((defaultStake/100).toFixed(2));setAccountId('');setDateInput(today());setError('');setOpen(true);}
+ function startEdit(r:any){setEditing({id:r.id,revision:r.revision});setEvent(r.data.event);setMarkets(r.data.markets?.length?r.data.markets:blankMarkets());setOdd(String(r.data.odd));setStakeInput((r.data.stake/100).toFixed(2));setAccountId(r.data.accountId||'');setDateInput(r.data.date||today());setError('');setOpen(true);}
  function submit(e:any){
   e.preventDefault();
   const picked=accounts.find(a=>a.id===accountId);
@@ -38,8 +41,9 @@ export function Odd5Panel({rows,disabled,onUpdated}:PanelProps){
   if(!cleanMarkets.length){setError('Informe o mercado de pelo menos uma seleção.');return;}
   const oddValue=Number(String(odd).replace(',','.'));
   if(!Number.isFinite(oddValue)||oddValue<1.01){setError('Informe uma odd válida.');return;}
-  if(editing)void send({action:'edit',id:editing.id,revision:editing.revision,event,markets:cleanMarkets,odd:oddValue,stake:cents,accountId});
-  else void send({action:'create',event,markets:cleanMarkets,odd:oddValue,stake:cents,accountId});
+  if(!dateInput){setError('Informe a data da entrada.');return;}
+  if(editing)void send({action:'edit',id:editing.id,revision:editing.revision,event,markets:cleanMarkets,odd:oddValue,stake:cents,accountId,date:dateInput});
+  else void send({action:'create',event,markets:cleanMarkets,odd:oddValue,stake:cents,accountId,date:dateInput});
  }
  return <div>
   <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12,flexWrap:'wrap'}}>
@@ -60,9 +64,9 @@ export function Odd5Panel({rows,disabled,onUpdated}:PanelProps){
   <button type="button" className="primary" disabled={disabled||busy||!accounts.length} onClick={startCreate}><Plus size={18}/>Nova entrada</button>
   {!accounts.length&&<p className="hint">Cadastre uma conta na aba Contas antes de registrar uma entrada.</p>}
   {error&&!open&&!confirm&&!deleteTarget&&!settingsOpen&&<p className="error" role="alert">{error}</p>}
-  <div className="account-grid" style={{marginTop:20}}>{[...entries].reverse().map(r=><article key={r.id} className="account-card">
+  <div className="account-grid" style={{marginTop:20}}>{[...visibleEntries].reverse().map(r=><article key={r.id} className="account-card">
    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
-    <small>{r.data.account} · {r.data.house}</small>
+    <small>{r.data.account} · {r.data.house}{r.data.date?' · '+r.data.date.split('-').reverse().join('/'):''}</small>
     <div style={{display:'flex',gap:10}}>
      <button type="button" className="text-button" style={{display:'inline-flex',alignItems:'center',gap:4}} disabled={disabled||busy} onClick={()=>startEdit(r)} aria-label={'Editar entrada '+r.data.event}><Pencil size={14}/>Editar</button>
      <button type="button" className="text-button negative" style={{display:'inline-flex',alignItems:'center',gap:4}} disabled={disabled||busy} onClick={()=>{setError('');setDeleteTarget({id:r.id,revision:r.revision,event:r.data.event});}} aria-label={'Excluir entrada '+r.data.event}><Trash2 size={14}/>Excluir</button>
@@ -76,6 +80,7 @@ export function Odd5Panel({rows,disabled,onUpdated}:PanelProps){
    {r.data.result==='Pendente'&&<div className="account-actions">{(['Green','Red'] as const).map(result=><button key={result} type="button" disabled={disabled||busy} onClick={()=>{setError('');setConfirm({id:r.id,revision:r.revision,result,event:r.data.event,stake:r.data.stake,odd:r.data.odd});}}>{result}</button>)}</div>}
   </article>)}</div>
   {!entries.length&&<div className="quiet-empty">Registre a primeira entrada com stake de {money(defaultStake)}.</div>}
+  {!!entries.length&&!visibleEntries.length&&<div className="quiet-empty">Nenhuma entrada da ODD 5 no período selecionado.</div>}
   <Dialog open={open} onOpenChange={v=>{if(!busy)setOpen(v);}}><DialogContent className="editor"><DialogHeader><DialogTitle>{editing?'Editar entrada':'Nova entrada'}</DialogTitle><DialogDescription>Stake padrão de {money(defaultStake)}. Ajuste o valor e a odd conforme a aposta.</DialogDescription></DialogHeader><form onSubmit={submit}>
    <label className="field">Evento<input required maxLength={200} value={event} onChange={e=>setEvent(e.target.value)} disabled={busy} placeholder="Ex.: Time A x Time B"/></label>
    <div className="combination-editor"><b>Mercado{markets.length>1?'s (múltipla)':''}</b>
@@ -85,6 +90,7 @@ export function Odd5Panel({rows,disabled,onUpdated}:PanelProps){
    <div className="form-grid" style={{marginTop:18}}>
     <label className="field">Odd<input required type="number" min="1.01" step="0.01" value={odd} onChange={e=>setOdd(e.target.value)} disabled={busy}/></label>
     <label className="field">Stake (R$)<input required type="number" min="0.01" step="0.01" value={stakeInput} onChange={e=>setStakeInput(e.target.value)} disabled={busy}/></label>
+    <label className="field">Data<input required type="date" value={dateInput} onChange={e=>setDateInput(e.target.value)} disabled={busy}/></label>
    </div>
    {accounts.length?<PersonAccountPicker accounts={accounts} value={accountId} onChange={setAccountId} disabled={busy}/>:<p className="hint">Nenhuma conta cadastrada ainda.</p>}
    {(()=>{const cents=Math.round(Number(stakeInput.replace(',','.'))*100);const oddValue=Number(String(odd).replace(',','.'));return Number.isFinite(cents)&&cents>0&&Number.isFinite(oddValue)?<p className="hint">Prêmio se der Green: <b>{money(Math.round(cents*oddValue*100)/100)}</b></p>:null;})()}

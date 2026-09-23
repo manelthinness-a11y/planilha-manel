@@ -1,5 +1,5 @@
 import type {RecordItem} from './banca';
-export type Odd5Entry={event:string;markets:string[];stake:number;odd:number;account:string;house:string;accountId?:string;result:'Pendente'|'Green'|'Red';prize:number};
+export type Odd5Entry={event:string;markets:string[];stake:number;odd:number;account:string;house:string;accountId?:string;result:'Pendente'|'Green'|'Red';prize:number;date?:string};
 export const odd5DefaultStakeId='odd5-default-stake';
 export const defaultOdd5Stake=500;
 export const odd5OddDefault='5.00';
