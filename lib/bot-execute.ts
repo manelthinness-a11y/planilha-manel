@@ -3,6 +3,7 @@
 // straight into the same route handlers the web UI uses — so every command
 // the bot can run goes through the exact same Zod validation, optimistic
 // concurrency checks and business rules as the app at "/".
+import {env} from 'cloudflare:workers';
 import type {RecordItem} from './banca';
 import {
  type BotCommand,toCents,todayISO,resolveAccount,resolveBank,resolvePerson,
@@ -149,7 +150,12 @@ export function resolveCommand(cmd:BotCommand,rows:RecordItem[]):ResolveResult{
 }
 
 async function callHandler(handler:(req:Request)=>Promise<Response>,origin:string,path:string,method:string,body:unknown):Promise<{ok:boolean;json:any}>{
- const req=new Request(origin+path,{method,headers:{'content-type':'application/json',origin},body:JSON.stringify(body)});
+ // O bot roda dentro do mesmo Worker e chama esses handlers diretamente (sem
+ // ir pela rede), mas eles agora exigem a senha de acesso (ver lib/auth.ts).
+ // Como o bot já está autenticado pelo próprio Telegram (ALLOWED_USER_ID),
+ // usa o segredo do Worker direto daqui em vez de pedir senha pro usuário.
+ const password=(env as unknown as {ACCESS_PASSWORD?:string}).ACCESS_PASSWORD||'';
+ const req=new Request(origin+path,{method,headers:{'content-type':'application/json',origin,'x-access-password':password},body:JSON.stringify(body)});
  const res=await handler(req);
  const json:any=await res.json().catch(()=>({}));
  return {ok:res.ok,json};
