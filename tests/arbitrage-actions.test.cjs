@@ -266,6 +266,44 @@ async function edit(r){return call('POST',{...r});}
   console.log('Telas de detalhe: apostas em aberto por origem, totais iguais à Visão geral, freebets com uso, origem e vencimento verificados.');
  }
 
+ // Cassino: ganho soma no saldo da conta, perda desconta; visores e totais por pessoa/casa.
+ {
+  const cassino=source('app/api/cassino/route.ts');
+  const {cassinoTotals,cassinoByAccount}=source('lib/cassino.ts');
+  async function cs(body){const response=await cassino.POST(new Request('https://manel.test/api/cassino',{method:'POST',headers:{'Content-Type':'application/json',origin:'https://manel.test','x-access-password':'teste-senha'},body:JSON.stringify(body)}));return {status:response.status,data:await response.json()};}
+  reset([a,b]);
+  assert.equal((await cs({action:'create',type:'Ganho',amount:15000,accountId:'a',date:'2026-09-28',note:'roleta'})).status,200);
+  assert.equal((await cs({action:'create',type:'Perda',amount:4000,accountId:'a',date:'2026-09-27',note:''})).status,200);
+  assert.equal((await cs({action:'create',type:'Perda',amount:2500,accountId:'b',date:'2026-09-26'})).status,200);
+  // Conta inexistente, tipo inválido e valor zero são recusados.
+  assert.equal((await cs({action:'create',type:'Ganho',amount:100,accountId:'nao-existe',date:'2026-09-28'})).status,400);
+  assert.equal((await cs({action:'create',type:'Empate',amount:100,accountId:'a',date:'2026-09-28'})).status,400);
+  assert.equal((await cs({action:'create',type:'Ganho',amount:0,accountId:'a',date:'2026-09-28'})).status,400);
+  let s=summary(rows());
+  assert.equal(s.accounts.find(x=>x.id==='a').real,100000+15000-4000);
+  assert.equal(s.accounts.find(x=>x.id==='b').real,100000-2500);
+  assert.equal(s.open,0);assert.equal(s.exposure,0);
+  let t=cassinoTotals(rows());
+  assert.deepEqual(t,{gains:15000,losses:6500,balance:8500,gainCount:1,lossCount:2,count:3});
+  let by=cassinoByAccount(rows());
+  assert.deepEqual(by.map(x=>[x.house,x.gains,x.losses,x.balance,x.count]),[['a',15000,4000,11000,2],['b',0,2500,-2500,1]]);
+  // Editar: troca perda por ganho e muda de conta; revisão antiga é recusada.
+  const perdaB=rows().find(r=>r.kind==='cassino'&&r.data.house==='b');
+  assert.equal((await cs({action:'edit',id:perdaB.id,revision:99,type:'Ganho',amount:2500,accountId:'b',date:'2026-09-26',note:''})).status,409);
+  assert.equal((await cs({action:'edit',id:perdaB.id,revision:perdaB.revision,type:'Ganho',amount:3000,accountId:'a',date:'2026-09-26',note:'slots'})).status,200);
+  const edited=rows().find(r=>r.id===perdaB.id);
+  assert.equal(edited.data.type,'Ganho');assert.equal(edited.data.house,'a');assert.equal(edited.data.note,'slots');assert.equal(edited.revision,2);
+  s=summary(rows());
+  assert.equal(s.accounts.find(x=>x.id==='a').real,100000+15000-4000+3000);
+  assert.equal(s.accounts.find(x=>x.id==='b').real,100000);
+  // Excluir devolve o saldo.
+  assert.equal((await cs({action:'delete',id:edited.id,revision:edited.revision})).status,200);
+  assert.equal(rows().filter(r=>r.kind==='cassino').length,2);
+  assert.equal(summary(rows()).accounts.find(x=>x.id==='a').real,100000+15000-4000);
+  t=cassinoTotals(rows());assert.equal(t.balance,11000);
+  console.log('Cassino: ganho/perda por pessoa e casa, visores, totais por conta, edição, exclusão e saldo da conta verificados.');
+ }
+
  // The API rejects requests without the correct access password, on every verb.
  reset([a,b]);
  assert.equal((await api.GET(new Request('https://manel.test/api/records'))).status,401);

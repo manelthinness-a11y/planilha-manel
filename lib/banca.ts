@@ -36,6 +36,13 @@ export function summary(rows:RecordItem[]){
   if(d.result==='Pendente')open++;
   if(a){a.real+=ret-stake;if(d.result==='Pendente')a.exposure+=stake;if(d.result!=='Pendente')a.profit+=ret-stake;}
  }
+ // Cassino: ganho soma no saldo real da conta escolhida, perda desconta. Não há
+ // estado pendente, então não mexe em "em aberto".
+ for(const r of rows.filter(r=>r.kind==='cassino')){
+  const d=r.data;const a=(d.accountId&&byId[d.accountId])||byHolderHouse[normKey(d.account)+'|'+normKey(d.house)];
+  const value=d.type==='Ganho'?d.amount||0:-(d.amount||0);
+  if(a){a.real+=value;a.profit+=value;}
+ }
  const today=new Date().toISOString().slice(0,10);for(const g of grants){g.expired=!!g.expires&&g.expires<today;if(byId[g.account]&&!g.expired)byId[g.account].free+=g.remaining;}
  const realizedPreviousLoss=arbs.filter(a=>a.betsDone).reduce((total,a)=>total+a.previousLoss,0);
  const netProfit=profit-realizedPreviousLoss;
