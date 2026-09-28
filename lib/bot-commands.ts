@@ -82,6 +82,11 @@ export function resolveAvulsa(rows:RecordItem[],query:string,onlyPending:boolean
  const items=rows.filter(r=>r.kind==='avulsa'&&(!onlyPending||r.data.result==='Pendente'));
  return bestMatch(query,items,r=>[r.data.event]);
 }
+/** Registro de cassino identificado pela conta + valor (+ data, se dita): o mais recente que bater. */
+export function resolveCassino(rows:RecordItem[],accountId:string,valorCents:number,date?:string){
+ const items=rows.filter(r=>r.kind==='cassino'&&r.data.accountId===accountId&&r.data.amount===valorCents&&(!date||r.data.date===date));
+ return items.sort((a,b)=>(b.data.date||'').localeCompare(a.data.date||''))[0]||null;
+}
 
 export const leverageGroupOf=(grupo:'1,3'|'2,0'):Group=>grupo==='1,3'?'alavancagem':'alavancagem2';
 export const leverageGroupLabel=(g:Group)=>TRACKS.find(t=>t.mainGroup===g)?.label||g;
@@ -122,6 +127,9 @@ export const botCommandSchema=z.discriminatedUnion('acao',[
  z.object({acao:z.literal('avulsa_liquidar'),evento:txt(),resultado:z.enum(['green','red'])}),
  z.object({acao:z.literal('avulsa_excluir'),evento:txt()}),
  z.object({acao:z.literal('avulsa_editar'),evento:txt(),mercados:z.array(txt(120)).min(1).max(10).optional(),odd:z.number().min(1).max(1000).optional(),valor:reais.optional(),conta:txt().optional(),data:dateStr}),
+ z.object({acao:z.literal('cassino_criar'),tipo:z.enum(['ganho','perda']),valor:reais,conta:txt(),data:dateStr,observacao:z.string().max(300).optional()}),
+ z.object({acao:z.literal('cassino_excluir'),conta:txt(),valor:reais,data:dateStr}),
+ z.object({acao:z.literal('cassino_editar'),conta:txt(),valor:reais,data:dateStr,novoTipo:z.enum(['ganho','perda']).optional(),novoValor:reais.optional(),novaConta:txt().optional(),novaData:dateStr,observacao:z.string().max(300).optional()}),
  z.object({acao:z.literal('nao_entendi'),motivo:z.string().max(300).optional()}),
 ]);
 export type BotCommand=z.infer<typeof botCommandSchema>;
@@ -143,6 +151,7 @@ export function buildSystemPrompt(rows:RecordItem[]):string{
  const people=rows.filter(r=>r.kind==='commission_person').map(r=>`- ${r.data.name}`).join('\n')||'(nenhuma)';
  const pendingArbs=rows.filter(r=>r.kind==='arb'&&r.data.bets.some((b:any)=>b.status==='Pendente')).map(r=>`- ${r.data.event}`).join('\n')||'(nenhuma)';
  const pendingAvulsas=rows.filter(r=>r.kind==='avulsa'&&r.data.result==='Pendente').map(r=>`- ${r.data.event}`).join('\n')||'(nenhuma)';
+ const recentCassino=rows.filter(r=>r.kind==='cassino').sort((a,b)=>(b.data.date||'').localeCompare(a.data.date||'')).slice(0,10).map(r=>`- ${r.data.date} · ${r.data.house} · ${r.data.account} · ${r.data.type} · R$ ${brl(r.data.amount)}`).join('\n')||'(nenhum)';
  return `Você converte comandos em português (falados ou digitados) sobre o app "Planilha Manel", um controle de banca de apostas/arbitragem esportiva, em UM objeto JSON de comando. Responda APENAS com o JSON, sem nenhum texto antes ou depois, sem markdown.
 
 Data de hoje: ${todayISO()} (use este valor no campo "data" quando o usuário não disser uma data).
@@ -161,6 +170,9 @@ ${pendingArbs}
 
 Entradas avulsas pendentes (aba "Entrada avulsa"; para liquidar/editar/excluir por evento):
 ${pendingAvulsas}
+
+Últimos registros de cassino (aba "Cassino"; para editar/excluir, identifique pela conta e pelo valor, e pela data se a pessoa disser):
+${recentCassino}
 
 Escolha exatamente UMA "acao" dentre estas e preencha os campos daquele formato (valores monetários sempre em reais, decimal, ex: 150.50; nunca em centavos):
 
@@ -191,6 +203,9 @@ Escolha exatamente UMA "acao" dentre estas e preencha os campos daquele formato 
 {"acao":"avulsa_liquidar","evento":string,"resultado":"green"|"red"}
 {"acao":"avulsa_excluir","evento":string}
 {"acao":"avulsa_editar","evento":string,"mercados":[string]?,"odd":number?,"valor":number?,"conta":string?,"data":string?}  (corrige uma entrada avulsa já cadastrada, identificada pelo evento — inclua só os campos que estão mudando)
+{"acao":"cassino_criar","tipo":"ganho"|"perda","valor":number,"conta":string,"data":string?,"observacao":string?}  (aba "Cassino": ganho ou perda no cassino de uma casa; "ganhei"/"lucrei" = ganho, "perdi"/"torrei" = perda; "observacao" é o jogo ou detalhe que a pessoa citar, ex.: roleta, slots, crash, aviator, blackjack)
+{"acao":"cassino_excluir","conta":string,"valor":number,"data":string?}  (apaga um registro de cassino já feito, identificado pela conta e pelo valor; só inclua "data" se a pessoa disser a data)
+{"acao":"cassino_editar","conta":string,"valor":number,"data":string?,"novoTipo":"ganho"|"perda"?,"novoValor":number?,"novaConta":string?,"novaData":string?,"observacao":string?}  (corrige um registro de cassino: "conta"/"valor"/"data" identificam o registro atual; inclua só os campos "novo..." que estão mudando)
 {"acao":"nao_entendi","motivo":string?}  (use quando o comando não corresponder a nenhuma ação acima, ou faltar alguma informação essencial)
 
 Regras importantes:
@@ -200,6 +215,7 @@ Regras importantes:
 - Se o comando pedir para "registrar", "cadastrar", "lançar", "entrou", "criar" algo novo, use as ações de criação. Se pedir para "bateu", "não bateu", "ganhou", "perdeu", "finalizar", "liquidar" algo que já existe, use as ações de liquidação.
 - Se o usuário mencionar "Camilo" explicitamente, use sempre uma das ações camilo_* — NUNCA alavancagem_criar/liquidar/excluir. "Camilo" é uma aba própria (grupo "1,3" e "2,0" são só da Alavancagem normal, não têm relação com Camilo).
 - Se o usuário disser "entrada avulsa", "avulsa", "aposta avulsa", "aposta solta" ou "entrada solta", use sempre uma das ações avulsa_* — NUNCA camilo_*, odd5_* nem alavancagem_*. Uma entrada avulsa tem UMA casa só (campo "conta"); se a pessoa citar duas ou mais casas na mesma operação, é uma arbitragem (criar_arbitragem), não uma entrada avulsa.
+- Se o usuário falar em "cassino", "roleta", "slot", "slots", "caça-níquel", "crash", "aviator", "mines", "blackjack", "bac bo" ou "fortune tiger", é a aba Cassino: use cassino_criar (ganho ou perda), cassino_editar ou cassino_excluir — nunca criar_movimentacao nem as ações de aposta. Um registro de cassino não tem odd nem evento: só tipo, valor, conta, data e observação.
 - Se a pessoa disser "editar", "corrigir", "mudar", "trocar" ou "ajustar" algo em uma aposta/entrada que já existe (arbitragem, ODD5, Camilo ou entrada avulsa), use a ação de edição correspondente (arb_editar_aposta, odd5_editar, camilo_editar ou avulsa_editar) — nunca crie uma entrada nova nem confunda com liquidar. A Alavancagem (grupos "1,3" e "2,0") não tem ação de edição — se pedirem para editar uma entrada da Alavancagem, use "nao_entendi" explicando que só dá para liquidar, excluir ou criar uma nova.
 - Nas ações de edição, inclua no JSON APENAS os campos que a pessoa realmente pediu para mudar — nunca repita um valor que ela não citou nessa frase, mesmo que você veja o valor atual nas listas acima. Campo omitido = não mexe nele.
 - Nunca responda com texto fora do JSON. Nunca use markdown.`;
@@ -211,3 +227,4 @@ export const tipoMovLabel:Record<string,string>={deposito:'Depósito',saque:'Saq
 export const tipoComissaoLabel:Record<string,string>={comissao:'Comissão',debito:'Débito',pagamento:'Pagamento'};
 export const statusApostaLabel:Record<string,string>={pendente:'Pendente',ganhou:'Ganhou',perdeu:'Perdeu',cancelada:'Cancelada',cashout:'Cashout'};
 export const resultadoLabel:Record<string,string>={green:'Green',red:'Red'};
+export const cassinoTipoLabel:Record<string,'Ganho'|'Perda'>={ganho:'Ganho',perda:'Perda'};

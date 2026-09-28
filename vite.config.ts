@@ -13,9 +13,11 @@ const { d1, r2 } = hostingConfig;
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
 const managedLinux = readExecutionProfile() === "managed-linux";
 
+// compatibility_date/flags vêm do wrangler.jsonc; declarar de novo aqui
+// duplicava "nodejs_compat" no wrangler.json gerado (o Workers Builds e o
+// runtime local recusam flag repetida).
 const localBindingConfig = {
   main: "./worker/index.ts",
-  compatibility_flags: ["nodejs_compat"],
   d1_databases: d1
     ? [
         {

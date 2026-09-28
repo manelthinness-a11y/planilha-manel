@@ -304,6 +304,105 @@ async function edit(r){return call('POST',{...r});}
   console.log('Cassino: ganho/perda por pessoa e casa, visores, totais por conta, edição, exclusão e saldo da conta verificados.');
  }
 
+ // Exclusão de conta: bloqueada quando há entradas de qualquer aba apontando para ela.
+ {
+  const {accountDependencies,hasAccountDependencies}=source('lib/record-changes.ts');
+  const base=[a,b];
+  reset(base);
+  assert.equal(hasAccountDependencies(rows(),'a'),false);
+  let r=await remove('a');assert.equal(r.status,200);
+  for(const [label,extra] of [
+   ['alavancagem',row('x','alavancagem',{group:'alavancagem',sequence:1,cycle:1,stake:1000,prize:0,odd:1.3,market:'Casa',account:'Teste',house:'a',accountId:'a',result:'Pendente',event:'E',date:'2026-09-20'})],
+   ['odd5',row('x','odd5',{event:'E',markets:['m'],stake:500,odd:5,account:'Teste',house:'a',accountId:'a',result:'Green',prize:2500,date:'2026-09-20'})],
+   ['camilo',row('x','camilo',{event:'E',markets:['m'],stake:500,odd:2,account:'Teste',house:'a',accountId:'a',result:'Red',prize:0,date:'2026-09-20'})],
+   ['avulsa',row('x','avulsa',{event:'E',markets:['m'],stake:500,odd:2,account:'Teste',house:'a',accountId:'a',result:'Pendente',prize:0,date:'2026-09-20'})],
+   ['cassino',row('x','cassino',{type:'Ganho',amount:500,account:'Teste',house:'a',accountId:'a',date:'2026-09-20',note:''})],
+   // entrada antiga, sem accountId: casa por titular + casa
+   ['avulsa sem accountId',row('x','avulsa',{event:'E',markets:['m'],stake:500,odd:2,account:'teste',house:'A',result:'Green',prize:1000,date:'2026-09-20'})],
+  ]){
+   reset([...base,extra]);
+   assert.equal(hasAccountDependencies(rows(),'a'),true,label);
+   assert.equal(hasAccountDependencies(rows(),'b'),false,label);
+   r=await remove('a');assert.equal(r.status,409,label);assert.equal(r.data.code,'account_dependency',label);
+   assert.ok(rows().some(x=>x.id==='a'),label+': conta preservada');
+  }
+  reset([...base,movement('m1','a','Depósito',1000),row('c1','cassino',{type:'Perda',amount:500,account:'Teste',house:'a',accountId:'a',date:'2026-09-20',note:''})]);
+  const deps=accountDependencies(rows(),'a');
+  assert.equal(deps.total,2);assert.deepEqual(deps.labels,['1 movimentações','1 registros de Cassino']);
+  console.log('Exclusão de conta: bloqueio cobre movimentações, arbitragens, Alavancagem, ODD 5, Camilo, Entrada avulsa e Cassino (com e sem accountId).');
+ }
+
+ // Bot: comandos do cassino passam pelo esquema e o registro é achado por conta + valor (+ data).
+ {
+  const {botCommandSchema,resolveCassino,buildSystemPrompt}=source('lib/bot-commands.ts');
+  for(const cmd of [
+   {acao:'cassino_criar',tipo:'ganho',valor:200,conta:'a Teste',observacao:'roleta'},
+   {acao:'cassino_criar',tipo:'perda',valor:50.5,conta:'a Teste',data:'2026-09-28'},
+   {acao:'cassino_excluir',conta:'a Teste',valor:200},
+   {acao:'cassino_editar',conta:'a Teste',valor:200,novoValor:150},
+  ])assert.equal(botCommandSchema.safeParse(cmd).success,true,cmd.acao);
+  assert.equal(botCommandSchema.safeParse({acao:'cassino_criar',tipo:'empate',valor:10,conta:'a'}).success,false);
+  reset([a,b,
+   row('c1','cassino',{type:'Ganho',amount:20000,account:'Teste',house:'a',accountId:'a',date:'2026-09-20',note:''}),
+   row('c2','cassino',{type:'Ganho',amount:20000,account:'Teste',house:'a',accountId:'a',date:'2026-09-27',note:''}),
+   row('c3','cassino',{type:'Perda',amount:20000,account:'Teste',house:'b',accountId:'b',date:'2026-09-27',note:''}),
+  ]);
+  assert.equal(resolveCassino(rows(),'a',20000)?.id,'c2'); // sem data: o mais recente
+  assert.equal(resolveCassino(rows(),'a',20000,'2026-09-20')?.id,'c1');
+  assert.equal(resolveCassino(rows(),'a',999),null);
+  const prompt=buildSystemPrompt(rows());
+  assert.ok(prompt.includes('"acao":"cassino_criar"'));assert.ok(prompt.includes('Últimos registros de cassino'));assert.ok(prompt.includes('R$ 200,00'));
+  console.log('Bot do cassino: esquema, prompt e identificação do registro por conta/valor/data verificados.');
+ }
+
+ // Exportação: planilha achatada (uma linha por registro/aposta) e backup JSON completo.
+ {
+  const {exportRows,exportCsv,exportJson,CSV_COLUMNS}=source('lib/export.ts');
+  reset([a,b,
+   movement('m1','a','Depósito',10000),
+   arb('arb1',[bet('x1','a','Ganhou',10000,21000),bet('x2','b','Perdeu',10000)]),
+   row('c1','cassino',{type:'Perda',amount:2500,account:'Teste',house:'a',accountId:'a',date:'2026-09-20',note:'slots'}),
+   row('od','odd5_setting',{value:500}),
+  ]);
+  const lines=exportRows(rows());
+  assert.equal(lines.length,2+1+2+1); // 2 contas + 1 movimentação + 2 apostas + 1 cassino (a configuração não entra)
+  assert.deepEqual(lines.slice(0,2).map(l=>l.Origem),['Conta','Conta']);
+  const win=lines.find(l=>l.Origem==='Arbitragem'&&l.Situação==='Ganhou');
+  assert.equal(win['Resultado (R$)'],'110,00');assert.equal(win['Stake (R$)'],'100,00');assert.equal(win.Odd,'2,10');assert.equal(win.Casa,'a');
+  assert.equal(lines.find(l=>l.Origem==='Cassino')['Resultado (R$)'],'-25,00');
+  const csv=exportCsv(rows());
+  assert.ok(csv.startsWith('﻿'+CSV_COLUMNS.join(';')));
+  assert.equal(csv.split('\r\n').length,lines.length+2);
+  const json=JSON.parse(exportJson(rows(),new Date('2026-09-28T12:00:00Z')));
+  assert.equal(json.records,rows().length);assert.equal(json.rows.find(r=>r.id==='arb1').data.bets.length,2);
+  console.log('Exportação: planilha CSV (BOM, ponto e vírgula, valores em reais) e backup JSON verificados.');
+ }
+
+ // Pessoas: resultado por pessoa somando todas as origens, só liquidadas, no período.
+ {
+  const {peopleResults,peopleTotals}=source('lib/people-results.ts');
+  const c=row('c','account',{house:'c',holder:'Outra',initial:50000,note:''});
+  reset([a,b,c,
+   arb('arb1',[bet('x1','a','Ganhou',10000,21000),bet('x2','b','Perdeu',10000)]), // Teste: +11000 e -10000
+   arb('arb2',[bet('y1','c','Pendente',5000),bet('y2','a','Pendente',5000)]),       // pendente: não conta
+   row('al','alavancagem',{group:'alavancagem',sequence:1,cycle:1,stake:1000,prize:1300,odd:1.3,market:'Casa',account:'Teste',house:'a',accountId:'a',result:'Green',event:'E',date:'2026-09-14'}), // +300
+   row('cm','camilo',{event:'E',markets:['m'],stake:500,odd:2,account:'Outra',house:'c',accountId:'c',result:'Red',prize:0,date:'2026-09-14'}), // Outra: -500
+   row('cs','cassino',{type:'Ganho',amount:2000,account:'Outra',house:'c',accountId:'c',date:'2026-09-14',note:''}), // Outra: +2000
+   row('old','avulsa',{event:'E',markets:['m'],stake:500,odd:3,account:'Teste',house:'a',accountId:'a',result:'Green',prize:1500,date:'2026-08-01'}), // agosto: fora do período
+  ]);
+  const month={mode:'month',year:2026,month:9};
+  const list=peopleResults(rows(),month);
+  assert.deepEqual(list.map(p=>[p.name,p.total,p.count]),[['Outra',1500,2],['Teste',1300,3]]);
+  const teste=list.find(p=>p.name==='Teste');
+  assert.equal(teste.byOrigin.arb,1000);assert.equal(teste.byOrigin.alavancagem,300);assert.equal(teste.byOrigin.avulsa,0);
+  assert.deepEqual(teste.accounts.map(x=>[x.house,x.total]),[['a',11300],['b',-10000]]);
+  const all=peopleResults(rows(),{mode:'all'});
+  assert.equal(all.find(p=>p.name==='Teste').byOrigin.avulsa,1000);
+  const t=peopleTotals(list);
+  assert.equal(t.total,2800);assert.equal(t.people,2);assert.equal(t.positive,2);assert.equal(t.byOrigin.cassino,2000);
+  console.log('Pessoas: resultado por pessoa e por casa, por origem, só liquidadas e dentro do período verificados.');
+ }
+
  // The API rejects requests without the correct access password, on every verb.
  reset([a,b]);
  assert.equal((await api.GET(new Request('https://manel.test/api/records'))).status,401);

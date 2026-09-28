@@ -53,7 +53,7 @@ async function handleMessage(e:Env,message:any):Promise<void>{
   return;
  }
  if(typeof message.text==='string'&&message.text.startsWith('/start')){
-  await sendMessage(e,chatId,'👋 Envie um áudio (ou digite) descrevendo o que quer registrar na Planilha Manel — contas, movimentações, entradas avulsas, arbitragens, alavancagem, ODD5, Camilo, bancos ou comissões. Antes de salvar qualquer coisa, eu mostro o que entendi e peço confirmação.');
+  await sendMessage(e,chatId,'👋 Envie um áudio (ou digite) descrevendo o que quer registrar na Planilha Manel — contas, movimentações, entradas avulsas, arbitragens, alavancagem, ODD5, Camilo, cassino, bancos ou comissões. Antes de salvar qualquer coisa, eu mostro o que entendi e peço confirmação.');
   return;
  }
  let text:string|null=null;

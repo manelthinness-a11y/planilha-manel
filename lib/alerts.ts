@@ -52,6 +52,12 @@ export async function alertAlavancagemCycleComplete(trackLabel:string,event:stri
  await notify(`🏁 <b>Alavancagem — ciclo completo!</b>\n${esc(trackLabel)} · ${esc(event)}\nPrêmio: ${money(prizeCents)}`);
 }
 
+/** Entrada avulsa liquidada (Green ou Red). */
+export async function alertAvulsaSettled(event:string,result:'Green'|'Red',prizeCents:number,accountLabel:string):Promise<void>{
+ const emoji=result==='Green'?'🟢':'🔴';
+ await notify(`${emoji} <b>Entrada avulsa liquidada</b>\n${esc(event)} · ${esc(accountLabel)}\nResultado: ${result}${result==='Green'?` · Prêmio: ${money(prizeCents)}`:''}`);
+}
+
 /** ODD5 liquidado (Green ou Red). */
 export async function alertOdd5Settled(event:string,result:'Green'|'Red',prizeCents:number):Promise<void>{
  const emoji=result==='Green'?'🟢':'🔴';

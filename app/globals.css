@@ -354,3 +354,25 @@ body{font-family:Arial,Helvetica,sans-serif;margin:0;color:#172b37;background:#f
 .dark .cassino-type-option{background:#182420;border-color:#2e3b34;color:#9fd0b8}
 .dark .cassino-type-option.is-gain{background:#17271f;border-color:#3a6853;color:#6fdcb2}
 .dark .cassino-type-option.is-loss{background:#2a1517;border-color:#6b2a2d;color:#ff8f93}
+
+/* Exportar dados (Visão geral) */
+.export-options{display:grid;gap:10px;margin-top:8px}
+.export-option{display:flex;align-items:center;gap:14px;text-align:left;border:1px solid #d8e1e4;background:#fff;border-radius:9px;padding:14px 16px;color:#172b37}
+.export-option:hover{border-color:#83ae9e;background:#f3f7f5}
+.export-option>svg{flex-shrink:0;color:#21684e}
+.export-option b{display:block;font-size:15px}
+.export-option small{margin-top:4px;line-height:1.45}
+.dark .export-option{background:#182420;border-color:#2e3b34;color:#e7ece8}
+.dark .export-option:hover{background:#1c2f27;border-color:#3a6853}
+.dark .export-option>svg{color:#6fdcb2}
+/* Aba Pessoas */
+.person-toggle{display:inline-flex;align-items:center;gap:6px;font-size:14px;color:inherit}
+.person-toggle svg{color:#85918e;transition:transform .15s}
+.person-row[data-open] td{background:#f3f7f5}
+.person-account-row td{background:#fafcfb;font-size:13px}
+.person-account{display:inline-block;padding-left:22px;color:#4d625b}
+.person-total-row td{border-top:2px solid #dce4e8;background:#f8fafb}
+.dark .person-row[data-open] td{background:#17271f}
+.dark .person-account-row td{background:#121a16}
+.dark .person-account{color:#9fd0b8}
+.dark .person-total-row td{border-top-color:#2e3b34;background:#121a16}

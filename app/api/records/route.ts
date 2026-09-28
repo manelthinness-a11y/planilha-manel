@@ -2,7 +2,7 @@ import {database} from '@/lib/store';
 import {z} from 'zod';
 import {summary,grantsOf} from '@/lib/banca';
 import {combinationLabel} from '@/lib/markets';
-import {recordsSnapshot,insertRecordSql,updateRecordSql,deleteArbitrageSql,freebetDependents} from '@/lib/record-changes';
+import {recordsSnapshot,insertRecordSql,updateRecordSql,deleteArbitrageSql,freebetDependents,accountDependencies} from '@/lib/record-changes';
 import {bankNameKey} from '@/lib/banks';
 import {prepareBankOperation} from '@/lib/bank-transactions';
 import {backupLog} from '@/lib/backup';
@@ -113,8 +113,8 @@ export async function DELETE(req:Request){if(!checkAccess(req))return unauthoriz
  const rows=await all();const old=rows.find((r:any)=>r.id===body.id);
  if(old?.kind==='account'){
   if(old.revision!==body.revision)return Response.json({error:'Esta conta mudou. Sincronize antes de excluir.',code:'stale'},{status:409});
-  const linked=rows.some((r:any)=>(r.kind==='movement'&&r.data.account===body.id)||(r.kind==='arb'&&(r.data.bets?.some((b:any)=>b.account===body.id)||r.data.promo?.account===body.id)));
-  if(linked)return Response.json({error:'Esta conta possui movimentações, apostas ou créditos promocionais vinculados. A exclusão foi bloqueada para preservar o histórico. Você pode editar o cadastro da conta.',code:'account_dependency'},{status:409});
+  const deps=accountDependencies(rows,body.id);
+  if(deps.total)return Response.json({error:'Esta conta ainda tem '+deps.labels.join(', ')+' vinculados. A exclusão foi bloqueada para preservar o histórico e os saldos. Exclua ou mova esses registros antes, ou apenas edite o cadastro da conta.',code:'account_dependency'},{status:409});
   const sql="DELETE FROM records WHERE id=? AND kind='account' AND revision=? AND COALESCE((SELECT group_concat(token, '|') FROM (SELECT id || ':' || revision AS token FROM records ORDER BY id)), '') = ?";
   const result=await database().prepare(sql).bind(body.id,body.revision,recordsSnapshot(rows)).run();
   if(!result.meta.changes)return Response.json({error:'Os dados mudaram. Sincronize e confira a conta antes de excluir.',code:'stale'},{status:409});

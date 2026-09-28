@@ -7,8 +7,8 @@ import {env} from 'cloudflare:workers';
 import type {RecordItem} from './banca';
 import {
  type BotCommand,toCents,todayISO,resolveAccount,resolveBank,resolvePerson,
- resolvePendingArb,resolveArbByEvent,resolveOdd5,resolveCamilo,resolveAvulsa,leverageGroupOf,
- tipoMovLabel,tipoComissaoLabel,statusApostaLabel,resultadoLabel,
+ resolvePendingArb,resolveArbByEvent,resolveOdd5,resolveCamilo,resolveAvulsa,resolveCassino,leverageGroupOf,
+ tipoMovLabel,tipoComissaoLabel,statusApostaLabel,resultadoLabel,cassinoTipoLabel,
 } from './bot-commands';
 import {leverageEntries,nextLeverage} from './alavancagem';
 import {POST as recordsPost,DELETE as recordsDelete} from '@/app/api/records/route';
@@ -16,6 +16,7 @@ import {POST as alavancagemPost} from '@/app/api/alavancagem/route';
 import {POST as odd5Post} from '@/app/api/odd5/route';
 import {POST as camiloPost} from '@/app/api/camilo/route';
 import {POST as avulsaPost} from '@/app/api/avulsa/route';
+import {POST as cassinoPost} from '@/app/api/cassino/route';
 import {POST as bankTxPost} from '@/app/api/bank-transactions/route';
 
 export type Resolved=Record<string,string>;
@@ -257,6 +258,43 @@ export function resolveCommand(cmd:BotCommand,rows:RecordItem[]):ResolveResult{
    return {ok:true,resolved,description:`Editar entrada avulsa "${entry.data.event}" — ${changes.join(', ')}`};
   }
 
+  case 'cassino_criar':{
+   const acc=resolveAccount(rows,cmd.conta);
+   if(!acc)return {ok:false,error:`Não encontrei nenhuma conta parecida com "${cmd.conta}", ou o nome bate com mais de uma conta ao mesmo tempo. Diga o nome da casa junto com o titular (ex: "Pagolbet do Manel").`};
+   if(cmd.valor<=0)return {ok:false,error:'Diga o valor do ganho ou da perda no cassino (ex: "ganhei 200 reais na roleta na Bet365 do Manel").'};
+   return {ok:true,resolved:{accountId:acc.id},description:`Registrar ${cassinoTipoLabel[cmd.tipo].toLowerCase()} no cassino de R$ ${cmd.valor.toFixed(2).replace('.',',')} — conta ${acc.data.house} · ${acc.data.holder}${cmd.data?` — data ${cmd.data}`:''}${cmd.observacao?` — ${cmd.observacao}`:''}`};
+  }
+
+  case 'cassino_excluir':{
+   const acc=resolveAccount(rows,cmd.conta);
+   if(!acc)return {ok:false,error:`Não encontrei nenhuma conta parecida com "${cmd.conta}", ou o nome bate com mais de uma conta ao mesmo tempo. Diga o nome da casa junto com o titular (ex: "Pagolbet do Manel").`};
+   const entry=resolveCassino(rows,acc.id,toCents(cmd.valor),cmd.data);
+   if(!entry)return {ok:false,error:`Não encontrei nenhum registro de cassino de R$ ${cmd.valor.toFixed(2).replace('.',',')} na conta ${acc.data.house} · ${acc.data.holder}${cmd.data?` em ${cmd.data}`:''}.`};
+   return {ok:true,resolved:{cassinoId:entry.id},description:`⚠️ Excluir o registro de cassino: ${entry.data.type} de R$ ${(entry.data.amount/100).toFixed(2).replace('.',',')} — ${entry.data.house} · ${entry.data.account} — ${entry.data.date}`};
+  }
+
+  case 'cassino_editar':{
+   const acc=resolveAccount(rows,cmd.conta);
+   if(!acc)return {ok:false,error:`Não encontrei nenhuma conta parecida com "${cmd.conta}", ou o nome bate com mais de uma conta ao mesmo tempo. Diga o nome da casa junto com o titular (ex: "Pagolbet do Manel").`};
+   const entry=resolveCassino(rows,acc.id,toCents(cmd.valor),cmd.data);
+   if(!entry)return {ok:false,error:`Não encontrei nenhum registro de cassino de R$ ${cmd.valor.toFixed(2).replace('.',',')} na conta ${acc.data.house} · ${acc.data.holder}${cmd.data?` em ${cmd.data}`:''}.`};
+   let novaConta:ReturnType<typeof resolveAccount>=null;
+   if(cmd.novaConta){
+    novaConta=resolveAccount(rows,cmd.novaConta);
+    if(!novaConta)return {ok:false,error:`Não encontrei nenhuma conta parecida com "${cmd.novaConta}" para mover o registro.`};
+   }
+   if(!cmd.novoTipo&&cmd.novoValor===undefined&&!novaConta&&!cmd.novaData&&cmd.observacao===undefined)return {ok:false,error:'Não entendi o que precisa mudar nesse registro de cassino. Diga o campo e o novo valor (ex: "muda pra 150 reais" ou "era perda, não ganho").'};
+   const resolved:Resolved={cassinoId:entry.id};
+   if(novaConta)resolved.accountId=novaConta.id;
+   const changes:string[]=[];
+   if(cmd.novoTipo)changes.push(`tipo: ${cassinoTipoLabel[cmd.novoTipo]}`);
+   if(cmd.novoValor!==undefined)changes.push(`valor: R$ ${cmd.novoValor.toFixed(2).replace('.',',')}`);
+   if(novaConta)changes.push(`conta: ${novaConta.data.house} · ${novaConta.data.holder}`);
+   if(cmd.novaData)changes.push(`data: ${cmd.novaData}`);
+   if(cmd.observacao!==undefined)changes.push(`observação: ${cmd.observacao}`);
+   return {ok:true,resolved,description:`Editar registro de cassino (${entry.data.type} de R$ ${(entry.data.amount/100).toFixed(2).replace('.',',')} — ${entry.data.house} · ${entry.data.account}) — ${changes.join(', ')}`};
+  }
+
   case 'nao_entendi':
    return {ok:false,error:'Não entendi o que você quer fazer. Pode repetir de outro jeito, com o valor em reais e o nome da conta/casa?'};
  }
@@ -488,6 +526,33 @@ export async function executeCommand(cmd:BotCommand,resolved:Resolved,rows:Recor
      date:cmd.data||entry.data.date,
     });
     return r.ok?{ok:true,text:`✅ Entrada avulsa "${entry.data.event}" atualizada.`}:{ok:false,text:'❌ '+(r.json.error||'Não foi possível editar.')};
+   }
+   case 'cassino_criar':{
+    const acc=rows.find(r=>r.id===resolved.accountId);
+    if(!acc)return {ok:false,text:'❌ Essa conta não existe mais. Sincronize e tente de novo.'};
+    const r=await callHandler(cassinoPost,origin,'/api/cassino','POST',{action:'create',type:cassinoTipoLabel[cmd.tipo],amount:toCents(cmd.valor),accountId:acc.id,date:cmd.data||todayISO(),note:cmd.observacao||''});
+    return r.ok?{ok:true,text:`✅ ${cassinoTipoLabel[cmd.tipo]} de R$ ${cmd.valor.toFixed(2).replace('.',',')} registrado no cassino (${acc.data.house} · ${acc.data.holder}).`}:{ok:false,text:'❌ '+(r.json.error||'Não foi possível registrar.')};
+   }
+   case 'cassino_excluir':{
+    const entry=rows.find(r=>r.id===resolved.cassinoId);
+    if(!entry)return {ok:false,text:'❌ Esse registro de cassino não existe mais.'};
+    const r=await callHandler(cassinoPost,origin,'/api/cassino','POST',{action:'delete',id:entry.id,revision:entry.revision});
+    return r.ok?{ok:true,text:`✅ Registro de cassino (${entry.data.type} de R$ ${(entry.data.amount/100).toFixed(2).replace('.',',')}) excluído.`}:{ok:false,text:'❌ '+(r.json.error||'Não foi possível excluir.')};
+   }
+   case 'cassino_editar':{
+    const entry=rows.find(r=>r.id===resolved.cassinoId);
+    if(!entry)return {ok:false,text:'❌ Esse registro de cassino não existe mais. Sincronize e tente de novo.'};
+    const acc=resolved.accountId?rows.find(r=>r.id===resolved.accountId):null;
+    if(resolved.accountId&&!acc)return {ok:false,text:'❌ Essa conta não existe mais. Sincronize e tente de novo.'};
+    const r=await callHandler(cassinoPost,origin,'/api/cassino','POST',{
+     action:'edit',id:entry.id,revision:entry.revision,
+     type:cmd.novoTipo?cassinoTipoLabel[cmd.novoTipo]:entry.data.type,
+     amount:cmd.novoValor!==undefined?toCents(cmd.novoValor):entry.data.amount,
+     accountId:acc?acc.id:entry.data.accountId,
+     date:cmd.novaData||entry.data.date,
+     note:cmd.observacao!==undefined?cmd.observacao:(entry.data.note||''),
+    });
+    return r.ok?{ok:true,text:'✅ Registro de cassino atualizado.'}:{ok:false,text:'❌ '+(r.json.error||'Não foi possível editar.')};
    }
    case 'nao_entendi':
     return {ok:false,text:'❌ Não entendi o comando.'};
